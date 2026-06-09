@@ -194,7 +194,7 @@ def notion_tasks_sync() -> int:
                 clean_title = re.sub(r'[\\/*?:"<>|]', "", title)
                 if not local_rel_path:
                     # Create new local task file
-                    category = "FF3300" # Default category
+                    category = "General"  # Default category
                     local_rel_path = f"wiki/entities/{category}/{clean_title}.md"
                 
                 local_abs_path = os.path.join(vault_path, local_rel_path)

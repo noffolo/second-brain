@@ -49,7 +49,7 @@ def mock_vault():
             
         e2_path = os.path.join(tmpdir, "wiki/entities/General/Giancarlo Fransvea.md")
         e2_fm = {"type": "entity"}
-        e2_body = "# Giancarlo Fransvea\n\nGiancarlo Fransvea di FF3300."
+        e2_body = "# Giancarlo Fransvea\n\nGiancarlo Fransvea di Esempio."
         with open(e2_path, "w", encoding="utf-8") as f:
             f.write(to_markdown(e2_fm, e2_body))
             

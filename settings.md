@@ -13,8 +13,8 @@ sources:
     enabled: true
     sync_all: true
     database_ids: []                  # Inserisci qui gli ID dei database Notion da sincronizzare se sync_all è false
-    calendar_database_id: ""          # ID del database eventi/appuntamenti Notion per FF3300
-    tasks_database_id: ""             # ID del database task Notion per FF3300
+    calendar_database_id: ""          # ID del database eventi/appuntamenti Notion
+    tasks_database_id: ""             # ID del database task Notion
   google_drive:
     enabled: true
     use_api: false
@@ -24,6 +24,7 @@ sources:
   apple_mail:
     enabled: true                     # Imposta a true per abilitare Apple Mail
     sync_all_accounts: true           # Imposta a true per sincronizzare tutti gli account configurati
+    account_prefix: ""                # Prefisso degli account mail da sincronizzare (es. "SB-", lasciare vuoto per tutti)
     mailbox: "SecondBrain"            # Utilizzato solo se sync_all_accounts è false
     days_back: 0                      # Importa lo storico delle email (0 = tutte le email)
     attachments_dir: "raw/mail_attachments"
@@ -42,7 +43,7 @@ sources:
   google_calendar:
     enabled: true
     urls:
-      - "https://calendar.google.com/calendar/ical/lascuolaopensource%40gmail.com/public/basic.ics"
+      - "https://calendar.google.com/calendar/ical/example%40gmail.com/public/basic.ics"
 
   meeting_agent:
     enabled: true

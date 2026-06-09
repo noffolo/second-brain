@@ -5,8 +5,8 @@ Questa documentazione approfondisce l'architettura, i moduli di sincronizzazione
 ---
 
 ## Indice
-1. [Integrazione Google Calendar SOS (iCal/ICS)](#1-integrazione-google-calendar-sos-icalics)
-2. [Sincronizzazione Notion (FF3300)](#2-sincronizzazione-notion-ff3300)
+1. [Integrazione Google Calendar (iCal/ICS)](#1-integrazione-google-calendar-icalics)
+2. [Sincronizzazione Notion](#2-sincronizzazione-notion)
 3. [Briefing Daemon (Pre-Evento via Mail)](#3-briefing-daemon-pre-evento-via-mail)
 4. [Nightly Dream Mode (Modalità Sogno)](#4-nightly-dream-mode-modalita-sogno)
 5. [Strategia Git: Due Versioni del Repository](#5-strategia-git-due-versioni-del-repository)
@@ -14,7 +14,7 @@ Questa documentazione approfondisce l'architettura, i moduli di sincronizzazione
 
 ---
 
-## 1. Integrazione Google Calendar SOS (iCal/ICS)
+## 1. Integrazione Google Calendar (iCal/ICS)
 
 Il Secondo Cervello supporta la sincronizzazione degli eventi da calendari esterni in formato iCal (`.ics`).
 
@@ -33,13 +33,13 @@ sources:
 > L'URL pubblico di Google Calendar (es. quello terminante con `@gmail.com/public/basic.ics`) restituisce un errore HTTP 404 se il calendario è impostato come privato.
 > Per sincronizzare correttamente un calendario privato senza esporlo pubblicamente, devi recuperare l'**Indirizzo segreto in formato iCal** dalle impostazioni di Google Calendar:
 > 1. Apri Google Calendar sul web.
-> 2. Vai in Impostazioni per il calendario desiderato (es. SOS).
+> 2. Vai in Impostazioni per il calendario desiderato.
 > 3. Scorri fino alla sezione "Integra calendario".
 > 4. Copia l'URL del campo **Indirizzo segreto in formato iCal**.
 > 5. Incolla questo URL nella lista `urls` in `settings.md`.
 
 ### Funzionamento del Sync
-Durante l'esecuzione di `make ingest` o del daemon di sincronizzazione, lo script [calendar_tools.py](file:///Users/ff3300/Desktop/TOOLS/second_brain/engine/tools/calendar_tools.py):
+Durante l'esecuzione di `make ingest` o del daemon di sincronizzazione, lo script [calendar_tools.py](engine/tools/calendar_tools.py):
 1. Scarica i file `.ics` dagli URL configurati.
 2. Esegue il parsing degli eventi (DTSTART, DTEND, SUMMARY, DESCRIPTION, LOCATION, ORGANIZER, ATTENDEE).
 3. Salva ogni evento come file markdown all'interno della cartella `raw/calendar/`.
@@ -47,9 +47,9 @@ Durante l'esecuzione di `make ingest` o del daemon di sincronizzazione, lo scrip
 
 ---
 
-## 2. Sincronizzazione Notion (FF3300)
+## 2. Sincronizzazione Notion
 
-Il modulo Notion consente una sincronizzazione bidirezionale avanzata per lo studio FF3300.
+Il modulo Notion consente una sincronizzazione bidirezionale avanzata.
 
 ### Prerequisiti (.env)
 Aggiungi il token Notion in `.env`:
@@ -69,8 +69,8 @@ sources:
 ```
 
 ### Moduli di Sincronizzazione
-- **Notion Calendar Sync** ([notion_calendar.py](file:///Users/ff3300/Desktop/TOOLS/second_brain/engine/tools/notion_calendar.py)): Scarica gli eventi del calendario di Notion e li inserisce in `raw/notion/` come appuntamenti.
-- **Notion Tasks Sync** ([notion_tasks.py](file:///Users/ff3300/Desktop/TOOLS/second_brain/engine/tools/notion_tasks.py)): Esegue una sincronizzazione bidirezionale dei task.
+- **Notion Calendar Sync** ([notion_calendar.py](engine/tools/notion_calendar.py)): Scarica gli eventi del calendario di Notion e li inserisce in `raw/notion/` come appuntamenti.
+- **Notion Tasks Sync** ([notion_tasks.py](engine/tools/notion_tasks.py)): Esegue una sincronizzazione bidirezionale dei task.
   - I task di Notion vengono importati in `raw/notion/` e integrati nel vault.
   - Se un task viene contrassegnato come completato nel vault, lo stato viene aggiornato anche sul database Notion corrispondente.
 
@@ -106,7 +106,7 @@ EMAIL_RECEIVER=tua_email_ricevente@gmail.com
 
 ## 4. Nightly Dream Mode (Modalità Sogno)
 
-Ogni notte alle 03:00, il Secondo Cervello entra in "Dream Mode" ([dream_daemon.py](file:///Users/ff3300/Desktop/TOOLS/second_brain/engine/dream_daemon.py)).
+Ogni notte alle 03:00, il Secondo Cervello entra in "Dream Mode" ([dream_daemon.py](engine/dream_daemon.py)).
 
 ### Obiettivi della Rielaborazione Notturna
 L'agente effettua un'analisi profonda sull'intero grafo semantico delle note:

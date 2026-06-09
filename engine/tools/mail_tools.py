@@ -226,16 +226,21 @@ def apple_mail_sync_to_raw() -> int:
         try:
             acc_names_output = run_applescript('tell application "Mail" to get name of every account')
             all_acc_names = [x.strip() for x in acc_names_output.split(",") if x.strip()]
-            sos_acc_names = [x for x in all_acc_names if x.startswith("SOS-")]
+            
+            prefix = mail_settings.get("account_prefix", "")
+            if prefix:
+                matched_acc_names = [x for x in all_acc_names if x.startswith(prefix)]
+            else:
+                matched_acc_names = all_acc_names
         except Exception as e:
             print(f"Errore nel recupero dei nomi degli account: {e}")
             return 0
             
-        if not sos_acc_names:
-            print("Nessun account SOS trovato.")
+        if not matched_acc_names:
+            print("Nessun account e-mail corrispondente trovato.")
             return 0
             
-        acc_list_applescript = "{" + ", ".join(f'"{name}"' for name in sos_acc_names) + "}"
+        acc_list_applescript = "{" + ", ".join(f'"{name}"' for name in matched_acc_names) + "}"
         list_mbs_script = f"""
         set accNames to {acc_list_applescript}
         set outText to ""

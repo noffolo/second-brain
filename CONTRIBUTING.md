@@ -8,7 +8,7 @@ Questo documento definisce il flusso di lavoro e le regole per inviare contribut
 2. **Sviluppare modifiche**:
    * Crea un ramo (branch) partendo da `main`.
    * Implementa le modifiche assicurandoti che i test continuino a passare.
-   * Rispetta rigorosamente le regole di scrittura e allineamento editoriale specificate in [buonsenso.md](file:///Users/ff3300/Desktop/TOOLS/second_brain/buonsenso.md).
+   * Rispetta rigorosamente le regole di scrittura e allineamento editoriale specificate in [buonsenso.md](buonsenso.md).
 3. **Inviare una proposta (pull request)**:
    * Assicurati che il tuo codice sia documentato.
    * Apri una pull request verso il ramo `main` del repository principale.

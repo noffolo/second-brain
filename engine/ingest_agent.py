@@ -171,13 +171,13 @@ def find_existing_page(vault_path: str, folder_type: str, clean_name: str) -> st
 def get_category_folder(title: str, body: str = "") -> str:
     text = (title + " " + body).lower()
     categories = {
-        'FF3300/USB': ['usb', 'pubblico impiego', 'sanità', 'vigili del fuoco', 'vvff', 'ministero interno', 'ministero dell\'istruzione', 'rsu', 'sciopero generale', 'sindacato conflittuale'],
-        'FF3300/SPI_CGIL': ['spi', 'cgil', 'pensionati', 'non autosufficienza', 'caroselloiceberg', 'cgil milano', 'pensionati.it', 'pensionati.milano.it'],
-        'FF3300/Arci': ['arci', 'maschilisti anonimi', 'm-an', 'arcibo', 'bologna', 'tesseramento arci', 'slogan arci'],
-        'FF3300/Auser': ['auser', 'auser lazio', 'rossi doria'],
-        'FF3300/Scabec': ['scabec', 'artecard', 'campania artecard', 'pass turistico', 'soprintendenza', 'museale'],
-        'FF3300/Regione_Puglia': ['regione puglia', 'galattica', 'innovapuglia', 'bari', 'comune di bari', 'spazio13', 'sp13', 'artisti digitali', 'co-progettazione giovanile', 'foggia', 'ruvo', 'tuturano', 'puglia creativa'],
-        'La_Scuola_Open_Source': ['sos', 'scuola open source', 'frosinone', 'saggio sos', 'laboratori brevi', 'mosaic', 'decennale 2026', 'piattaforma aps', 'culture swing'],
+        'Sindacati/USB': ['usb', 'pubblico impiego', 'sanità', 'vigili del fuoco', 'vvff', 'ministero interno', 'ministero dell\'istruzione', 'rsu', 'sciopero generale', 'sindacato conflittuale'],
+        'Sindacati/SPI_CGIL': ['spi', 'cgil', 'pensionati', 'non autosufficienza', 'cgil milano', 'pensionati.it', 'pensionati.milano.it'],
+        'Associazioni/Arci': ['arci', 'maschilisti anonimi', 'arcibo', 'bologna', 'tesseramento arci', 'slogan arci'],
+        'Associazioni/Auser': ['auser', 'auser lazio'],
+        'Cultura/Scabec': ['scabec', 'artecard', 'campania artecard', 'pass turistico', 'soprintendenza', 'museale'],
+        'Istituzioni/Puglia': ['regione puglia', 'innovapuglia', 'bari', 'comune di bari', 'spazio13', 'sp13', 'artisti digitali', 'co-progettazione giovanile', 'foggia', 'ruvo', 'tuturano', 'puglia creativa'],
+        'Didattica/Scuola_Aperta': ['scuola', 'didattica', 'laboratori brevi', 'mosaic', 'decennale', 'piattaforma', 'culture swing'],
         'AI_LLM_Coding': ['ai', 'llm', 'ollama', 'gemini', 'openai', 'n8n', 'retool', 'gitlab', 'cicd', 'coding', 'software', 'modelli', 'inferenza', 'rag', 'recompil', 'python', 'git_ops', 'hosting', 'ftp', 'server', 'smtp', 'developer'],
         'Design_Branding': ['design', 'branding', 'type design', 'font', 'visual', 'grafica', 'fizma', 'figma', 'tipograf', 'glifi', 'lettering', 'carattere tipografico', 'manifesto', 'locandina', 'advising', 'impaginazione', 'logo', 'logotipo', 'copertina', 'souvenir']
     }

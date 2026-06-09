@@ -304,7 +304,7 @@ def list_unprocessed_raw() -> list[str]:
             return 5
         if path.startswith("raw/web_articles/"):
             return 6
-        if "raw/sos_v" in path:  # Archivi storici SOS v1/v2
+        if "raw/archive_v" in path:  # Archivi storici
             return 100
         return 10  # Default per altro
         

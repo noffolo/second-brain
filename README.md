@@ -63,7 +63,7 @@ Il secondo cervello organizza la conoscenza personale in un archivio locale stru
 * **Aggiunta di una nota di diario**:
   Registra rapidamente un evento nel diario:
   ```bash
-  python engine/main.py journal "Definito il piano operativo per la Scuola Open Source."
+  python engine/main.py journal "Definito il piano operativo per il nuovo progetto."
   ```
 
 ---

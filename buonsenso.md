@@ -1,21 +1,19 @@
 ---
 name: buonsenso
 description: >-
-  Linee guida per la riscrittura, la sanificazione editoriale e l'allineamento semantico delle note all'interno del secondo cervello di FF3300 e La Scuola Open Source.
+  Linee guida per la riscrittura, la sanificazione editoriale e l'allineamento semantico delle note all'interno del secondo cervello.
 tags:
   - buonsenso
   - style-guide
-  - FF3300
-  - La_Scuola_Open_Source
 related:
-  - '[[wiki/sources/FF3300/PD/appunti_riunione_pd|Appunti riunione PD]]'
-  - '[[wiki/concepts/La_Scuola_Open_Source/Framing dei dati nella propaganda politica|Framing dei dati nella propaganda politica]]'
+  - '[[wiki/sources/Esempio/PD/appunti_riunione_pd|Appunti riunione PD]]'
+  - '[[wiki/concepts/Esempio/Framing dei dati nella propaganda politica|Framing dei dati nella propaganda politica]]'
 updated_at: '2026-06-07 13:53:00'
 created_at: '2026-06-07 11:45:00'
 ---
 # Buonsenso — linee guida redazionali ed editoriali per il secondo cervello
 
-Questo documento definisce le linee guida operative che l'assistente AI deve applicare autonomamente durante l'analisi, la scrittura e la modifica delle note nel vault, al fine di garantire la qualità linguistica e l'integrità strutturale della conoscenza condivisa di Studio FF3300 e La Scuola Open Source.
+Questo documento definisce le linee guida operative che l'assistente AI deve applicare autonomamente durante l'analisi, la scrittura e la modifica delle note nel vault, al fine di garantire la qualità linguistica e l'integrità strutturale della conoscenza condivisa.
 
 ## Linee guida editoriali
 
