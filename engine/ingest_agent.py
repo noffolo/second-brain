@@ -168,6 +168,80 @@ def find_existing_page(vault_path: str, folder_type: str, clean_name: str) -> st
                 return os.path.relpath(os.path.join(root, file), vault_path)
     return None
 
+def resolve_category_folder(vault_path: str, base_type: str, category: str) -> str:
+    """
+    Risolve il percorso della cartella della categoria in base alle cartelle esistenti nel vault.
+    Supporta anche un mapping esplicito tramite la variabile d'ambiente CATEGORY_MAPPINGS.
+    """
+    # 1. Verifica se c'è un mapping esplicito in CATEGORY_MAPPINGS
+    mappings_str = os.getenv("CATEGORY_MAPPINGS")
+    if mappings_str:
+        try:
+            mapping = json.loads(mappings_str)
+            if category in mapping:
+                return mapping[category]
+        except Exception:
+            pass
+
+    target_dir = os.path.join(vault_path, "wiki", base_type)
+    if not os.path.exists(target_dir):
+        return category
+        
+    # Se la cartella esatta esiste già, usala direttamente
+    if os.path.isdir(os.path.join(target_dir, category)):
+        return category
+        
+    # Scansiona le sottocartelle esistenti
+    existing_subdirs = []
+    try:
+        for root, dirs, _ in os.walk(target_dir):
+            for d in dirs:
+                if d.startswith('.'):
+                    continue
+                full_path = os.path.join(root, d)
+                rel_path = os.path.relpath(full_path, target_dir)
+                existing_subdirs.append(rel_path)
+    except Exception:
+        return category
+        
+    if not existing_subdirs:
+        return category
+        
+    # Prova corrispondenza esatta sull'ultimo segmento (case-insensitive)
+    category_parts = [p.lower() for p in category.split('/') if p]
+    if not category_parts:
+        return category
+        
+    last_part = category_parts[-1]
+    for subdir in existing_subdirs:
+        subdir_parts = [p.lower() for p in subdir.split('/') if p]
+        if subdir_parts and subdir_parts[-1] == last_part:
+            return subdir
+            
+    # Prova corrispondenza fuzzy basata su parole sovrapposte
+    def get_words(path: str) -> set:
+        normalized = re.sub(r'[^a-zA-Z0-9]', ' ', path).lower()
+        return {w for w in normalized.split() if len(w) > 2}
+        
+    category_words = get_words(category)
+    if not category_words:
+        return category
+        
+    best_match = None
+    best_score = 0
+    for subdir in existing_subdirs:
+        subdir_words = get_words(subdir)
+        overlap = category_words.intersection(subdir_words)
+        score = len(overlap)
+        if score > best_score:
+            best_score = score
+            best_match = subdir
+            
+    if best_match and best_score > 0:
+        return best_match
+        
+    return category
+
 def get_category_folder(title: str, body: str = "") -> str:
     text = (title + " " + body).lower()
     categories = {
@@ -183,18 +257,6 @@ def get_category_folder(title: str, body: str = "") -> str:
     }
     for category, keywords in categories.items():
         if any(k in text for k in keywords):
-            vault_path = get_vault_path()
-            if os.path.exists(os.path.join(vault_path, "wiki", "sources", "FF3300")):
-                mapping = {
-                    'Sindacati/USB': 'FF3300/USB',
-                    'Sindacati/SPI_CGIL': 'FF3300/SPI_CGIL',
-                    'Associazioni/Arci': 'FF3300/Arci',
-                    'Associazioni/Auser': 'FF3300/Auser',
-                    'Cultura/Scabec': 'FF3300/Scabec',
-                    'Istituzioni/Puglia': 'FF3300/Regione_Puglia',
-                    'Didattica/Scuola_Aperta': 'La_Scuola_Open_Source'
-                }
-                return mapping.get(category, category)
             return category
     return "General"
 
@@ -337,6 +399,7 @@ Restituisci solo ed esclusivamente il blocco JSON.
     source_path = find_existing_page(vault_path, "sources", clean_title)
     if not source_path:
         category = get_category_folder(source_title, source_summary.get("summary", ""))
+        category = resolve_category_folder(vault_path, "sources", category)
         source_path = f"wiki/sources/{category}/{clean_title}.md"
     
     source_body = f"# {source_title}\n\n{source_summary.get('summary', '')}\n\n## Punti Chiave\n"
@@ -363,6 +426,7 @@ Restituisci solo ed esclusivamente il blocco JSON.
         c_path = find_existing_page(vault_path, "concepts", c_clean)
         if not c_path:
             category = get_category_folder(c_name, concept.get("description", ""))
+            category = resolve_category_folder(vault_path, "concepts", category)
             c_path = f"wiki/concepts/{category}/{c_clean}.md"
         
         c_body = ""
@@ -408,6 +472,7 @@ Restituisci solo ed esclusivamente il blocco JSON.
             
         if not e_path:
             category = get_category_folder(target_name, entity.get("description", ""))
+            category = resolve_category_folder(vault_path, "entities", category)
             e_path = f"wiki/entities/{category}/{e_clean}.md"
         
         e_body = ""

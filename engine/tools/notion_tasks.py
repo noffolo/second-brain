@@ -193,10 +193,22 @@ def notion_tasks_sync() -> int:
                 # Notion is newer or equal: update local!
                 clean_title = re.sub(r'[\\/*?:"<>|]', "", title)
                 if not local_rel_path:
-                    # Create new local task file
-                    category = "General"  # Default category
-                    if os.path.exists(os.path.join(vault_path, "wiki", "entities", "FF3300")):
-                        category = "FF3300"
+                    # Determina la categoria di default
+                    category = os.getenv("NOTION_TASK_DEFAULT_CATEGORY")
+                    if not category:
+                        # Scansiona wiki/entities alla ricerca di cartelle personalizzate non-generiche
+                        entities_dir = os.path.join(vault_path, "wiki", "entities")
+                        if os.path.exists(entities_dir):
+                            try:
+                                subdirs = [d for d in os.listdir(entities_dir) if os.path.isdir(os.path.join(entities_dir, d)) and not d.startswith('.')]
+                                custom_subdirs = [d for d in subdirs if d not in ["General", "AI_LLM_Coding", "Design_Branding"]]
+                                if custom_subdirs:
+                                    category = custom_subdirs[0]
+                            except Exception:
+                                pass
+                    if not category:
+                        category = "General"
+                        
                     local_rel_path = f"wiki/entities/{category}/{clean_title}.md"
                 
                 local_abs_path = os.path.join(vault_path, local_rel_path)

@@ -100,3 +100,25 @@ def test_pydantic_validation():
     assert response.source_summary.title == "Unione Sindacale di Base"
     assert response.entities[0].name == "USB"
     assert response.entities[0].is_existing is True
+
+def test_resolve_category_folder(tmp_path):
+    from engine.ingest_agent import resolve_category_folder
+    
+    # Setup folders
+    sources_dir = tmp_path / "wiki" / "sources"
+    os.makedirs(sources_dir / "FF3300" / "USB", exist_ok=True)
+    os.makedirs(sources_dir / "La_Scuola_Open_Source", exist_ok=True)
+    os.makedirs(sources_dir / "General", exist_ok=True)
+    
+    # Test cases
+    # 1. Exact last segment match: "Sindacati/USB" -> "FF3300/USB"
+    res1 = resolve_category_folder(str(tmp_path), "sources", "Sindacati/USB")
+    assert res1 == "FF3300/USB"
+    
+    # 2. Fuzzy overlap match: "Didattica/Scuola_Aperta" -> "La_Scuola_Open_Source" (shares "Scuola")
+    res2 = resolve_category_folder(str(tmp_path), "sources", "Didattica/Scuola_Aperta")
+    assert res2 == "La_Scuola_Open_Source"
+    
+    # 3. Default fallback when no match: "AI_LLM_Coding" -> "AI_LLM_Coding"
+    res3 = resolve_category_folder(str(tmp_path), "sources", "AI_LLM_Coding")
+    assert res3 == "AI_LLM_Coding"
