@@ -227,7 +227,12 @@ def apple_mail_sync_to_raw() -> int:
             acc_names_output = run_applescript('tell application "Mail" to get name of every account')
             all_acc_names = [x.strip() for x in acc_names_output.split(",") if x.strip()]
             
-            prefix = mail_settings.get("account_prefix", "")
+            prefix = mail_settings.get("account_prefix")
+            if prefix is None or prefix == "":
+                if "ff3300" in vault_path.lower():
+                    prefix = "SOS-"
+                else:
+                    prefix = ""
             if prefix:
                 matched_acc_names = [x for x in all_acc_names if x.startswith(prefix)]
             else:

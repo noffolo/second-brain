@@ -183,6 +183,18 @@ def get_category_folder(title: str, body: str = "") -> str:
     }
     for category, keywords in categories.items():
         if any(k in text for k in keywords):
+            vault_path = get_vault_path()
+            if os.path.exists(os.path.join(vault_path, "wiki", "sources", "FF3300")):
+                mapping = {
+                    'Sindacati/USB': 'FF3300/USB',
+                    'Sindacati/SPI_CGIL': 'FF3300/SPI_CGIL',
+                    'Associazioni/Arci': 'FF3300/Arci',
+                    'Associazioni/Auser': 'FF3300/Auser',
+                    'Cultura/Scabec': 'FF3300/Scabec',
+                    'Istituzioni/Puglia': 'FF3300/Regione_Puglia',
+                    'Didattica/Scuola_Aperta': 'La_Scuola_Open_Source'
+                }
+                return mapping.get(category, category)
             return category
     return "General"
 
