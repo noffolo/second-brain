@@ -141,5 +141,4 @@ Questo progetto è distribuito sotto licenza **GNU GPL v3**. Leggi il file [LICE
 
 ## Contatti / Riconoscimenti
 
-* Ideato e sviluppato da **noffolo** e dai membri della comunità del Secondo Cervello.
 * Per segnalare bug o proporre nuove funzionalità, crea una segnalazione nell'apposita sezione delle issue su GitHub.
