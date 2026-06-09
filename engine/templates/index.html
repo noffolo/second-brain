@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secondo Cervello - Ingestion Dashboard</title>
+    <!-- Modern Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0d10;
+            --panel-bg: rgba(20, 24, 33, 0.65);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --accent-purple: #9d4edd;
+            --accent-purple-glow: rgba(157, 78, 221, 0.4);
+            --accent-cyan: #00f5d4;
+            --accent-cyan-glow: rgba(0, 245, 212, 0.3);
+            --accent-red: #ff5a5f;
+            --accent-red-glow: rgba(255, 90, 95, 0.3);
+            --accent-green: #2ecc71;
+            --text-primary: #f8f9fa;
+            --text-secondary: #adb5bd;
+            --text-muted: #6c757d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Abstract glowing background blobs */
+        body::before, body::after {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            filter: blur(150px);
+            z-index: -1;
+            opacity: 0.25;
+            pointer-events: none;
+        }
+
+        body::before {
+            background-color: var(--accent-purple);
+            top: -100px;
+            right: -100px;
+        }
+
+        body::after {
+            background-color: var(--accent-cyan);
+            bottom: -100px;
+            left: -100px;
+        }
+
+        header {
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 30px 20px 20px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff 30%, #a29bfe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-title p {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            margin-top: 5px;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 18px;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 30px;
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        .status-text {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-primary);
+        }
+
+        main {
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 10px 20px 30px 20px;
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 24px;
+            flex-grow: 1;
+        }
+
+        @media (max-width: 1000px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Glassmorphic Panel */
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 20px;
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .panel-header h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-primary);
+        }
+
+        .panel-header h2 svg {
+            width: 20px;
+            height: 20px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Large glowing control button */
+        .control-button-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px 0;
+            margin-bottom: 24px;
+        }
+
+        .btn-large {
+            width: 100%;
+            max-width: 280px;
+            height: 80px;
+            border-radius: 40px;
+            border: none;
+            cursor: pointer;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+            color: #fff;
+            position: relative;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn-large.idle {
+            background: linear-gradient(135deg, var(--accent-purple) 0%, #6c5ce7 100%);
+            box-shadow: 0 10px 25px var(--accent-purple-glow);
+        }
+
+        .btn-large.idle:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 35px var(--accent-purple-glow);
+        }
+
+        .btn-large.running {
+            background: linear-gradient(135deg, var(--accent-red) 0%, #d63031 100%);
+            box-shadow: 0 10px 25px var(--accent-red-glow);
+            animation: pulse-red 2s infinite;
+        }
+
+        .btn-large.running:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 35px var(--accent-red-glow);
+        }
+
+        @keyframes pulse-red {
+            0% {
+                box-shadow: 0 10px 25px var(--accent-red-glow);
+            }
+            50% {
+                box-shadow: 0 10px 40px rgba(255, 90, 95, 0.6);
+            }
+            100% {
+                box-shadow: 0 10px 25px var(--accent-red-glow);
+            }
+        }
+
+        .btn-large svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+
+        /* Scheduler Box */
+        .scheduler-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 16px;
+            padding: 20px;
+        }
+
+        .scheduler-box h3 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .scheduler-box h3 svg {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+        }
+
+        .scheduler-input-group {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .time-picker {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            padding: 10px 14px;
+            border-radius: 10px;
+            outline: none;
+            flex-grow: 1;
+            text-align: center;
+        }
+
+        .time-picker::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+        }
+
+        .btn-save-schedule {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 0.9rem;
+            padding: 11px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-save-schedule:hover {
+            background: var(--accent-cyan);
+            border-color: var(--accent-cyan);
+            color: #0b0d10;
+        }
+
+        /* Ingestion Queue List */
+        .queue-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            max-height: 380px;
+            margin-right: -10px;
+            padding-right: 10px;
+        }
+
+        .queue-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .queue-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .queue-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .queue-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .queue-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            margin-bottom: 10px;
+            transition: all 0.2s;
+        }
+
+        .queue-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.06);
+            transform: translateX(3px);
+        }
+
+        .source-tag {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .tag-notion { background: rgba(230, 126, 34, 0.15); color: #e67e22; border: 1px solid rgba(230, 126, 34, 0.3); }
+        .tag-mail { background: rgba(52, 152, 219, 0.15); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.3); }
+        .tag-drive { background: rgba(46, 204, 113, 0.15); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.3); }
+        .tag-calendar { background: rgba(155, 89, 182, 0.15); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.3); }
+        .tag-web { background: rgba(26, 188, 156, 0.15); color: #1abc9c; border: 1px solid rgba(26, 188, 156, 0.3); }
+        .tag-meetings { background: rgba(241, 196, 15, 0.15); color: #f1c40f; border: 1px solid rgba(241, 196, 15, 0.3); }
+        .tag-other { background: rgba(149, 165, 166, 0.15); color: #95a5a6; border: 1px solid rgba(149, 165, 166, 0.3); }
+
+        .file-name {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-grow: 1;
+        }
+
+        .no-items {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        .no-items svg {
+            width: 48px;
+            height: 48px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.5;
+            margin-bottom: 12px;
+            opacity: 0.6;
+        }
+
+        /* Console Log Box */
+        .console-panel {
+            grid-column: 1 / span 2;
+            min-height: 350px;
+        }
+
+        @media (max-width: 1000px) {
+            .console-panel {
+                grid-column: 1;
+            }
+        }
+
+        .console-output {
+            background: rgba(10, 12, 17, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: #d8dee9;
+            flex-grow: 1;
+            overflow-y: auto;
+            max-height: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .console-output::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .console-output::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+        }
+
+        .console-line {
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .console-line.info { color: #88c0d0; }
+        .console-line.success { color: #a3be8c; }
+        .console-line.warning { color: #ebcb8b; }
+        .console-line.error { color: #bf616a; }
+        
+        .console-controls {
+            display: flex;
+            gap: 12px;
+            margin-top: 12px;
+            justify-content: flex-end;
+        }
+
+        .btn-small {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 0.8rem;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-small:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        /* Custom Notification Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(20, 24, 33, 0.95);
+            border: 1px solid var(--accent-cyan);
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px var(--accent-cyan-glow);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transform: translateY(150%);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .toast.show {
+            transform: translateY(0);
+        }
+
+        .toast-icon {
+            width: 20px;
+            height: 20px;
+            fill: none;
+            stroke: var(--accent-cyan);
+            stroke-width: 2;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <h1>Secondo Cervello</h1>
+            <p>Pannello di controllo e monitoraggio dell'ingestore AI</p>
+        </div>
+        <div class="system-status">
+            <div class="status-dot"></div>
+            <div class="status-text">Servizi Online</div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Column 1: Control Panel -->
+        <div class="column">
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>
+                        <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                        Pannello di Controllo
+                    </h2>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stats-queue">0</div>
+                        <div class="stat-label">File in Coda</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stats-status" style="font-size: 1.15rem; font-weight: 700; height: 35px; display: flex; align-items: center; justify-content: center; text-transform: uppercase;">Pronto</div>
+                        <div class="stat-label">Ingestore</div>
+                    </div>
+                </div>
+
+                <div class="control-button-wrapper" style="flex-direction: column; gap: 14px;">
+                    <select id="source-selector" style="width: 100%; max-width: 280px; padding: 12px 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; color: var(--text-primary); outline: none; font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 500; cursor: pointer; transition: all 0.3s;">
+                        <option value="all" style="background:#0d0f12; color:#fff;">Tutte le fonti (all)</option>
+                        <option value="notion" style="background:#0d0f12; color:#fff;">Notion Database</option>
+                        <option value="drive" style="background:#0d0f12; color:#fff;">Google Drive</option>
+                        <option value="mail" style="background:#0d0f12; color:#fff;">Apple Mail</option>
+                        <option value="calendar" style="background:#0d0f12; color:#fff;">Google Calendar</option>
+                        <option value="web" style="background:#0d0f12; color:#fff;">Web Articles</option>
+                    </select>
+                    <button class="btn-large idle" id="btn-action" onclick="toggleIngestion()">
+                        <svg viewBox="0 0 24 24" id="btn-icon"><path d="M8 5v14l11-7z"/></svg>
+                        <span id="btn-text">Avvia Ingest</span>
+                    </button>
+                </div>
+
+                <div class="scheduler-box">
+                    <h3>
+                        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        Pianificazione Ingestione
+                    </h3>
+                    <div class="scheduler-input-group">
+                        <input type="time" class="time-picker" id="time-picker" value="10:00">
+                        <button class="btn-save-schedule" onclick="saveSchedule()">Salva</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Column 2: Ingestion Queue -->
+        <div class="column">
+            <div class="panel" style="flex-grow: 1;">
+                <div class="panel-header">
+                    <h2>
+                        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        File in Ingestione (Prossimi 10)
+                    </h2>
+                </div>
+                
+                <div class="queue-container" id="queue-list">
+                    <!-- Dynamic Queue Items -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 2: Console Log -->
+        <div class="panel console-panel">
+            <div class="panel-header">
+                <h2>
+                    <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                    Log Ingestione in Tempo Reale
+                </h2>
+            </div>
+            
+            <div class="console-output" id="console-logs">
+                <div class="console-line info">[SISTEMA] In attesa di avviare l'ingestione...</div>
+            </div>
+
+            <div class="console-controls">
+                <button class="btn-small" onclick="clearConsole()">Pulisci Log</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Notification Toast -->
+    <div class="toast" id="toast">
+        <svg class="toast-icon" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <span id="toast-message">Orario salvato con successo!</span>
+    </div>
+
+    <script>
+        let isRunning = false;
+        let eventSource = null;
+
+        // Fetch initial status and queue
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                
+                // Update stats
+                document.getElementById('stats-queue').innerText = data.queue_count;
+                
+                const statusLabel = document.getElementById('stats-status');
+                const btnAction = document.getElementById('btn-action');
+                const btnText = document.getElementById('btn-text');
+                const btnIcon = document.getElementById('btn-icon');
+                
+                isRunning = data.running;
+                const sourceSelector = document.getElementById('source-selector');
+                
+                if (isRunning) {
+                    statusLabel.innerText = `Attivo (${data.active_source})`;
+                    statusLabel.style.color = "var(--accent-red)";
+                    
+                    btnAction.className = "btn-large running";
+                    btnText.innerText = "Ferma Ingest";
+                    btnIcon.innerHTML = `<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>`; // Pause/stop icon
+                    
+                    sourceSelector.value = data.active_source;
+                    sourceSelector.disabled = true;
+                } else {
+                    statusLabel.innerText = "Pronto";
+                    statusLabel.style.color = "var(--accent-cyan)";
+                    
+                    btnAction.className = "btn-large idle";
+                    btnText.innerText = "Avvia Ingest";
+                    btnIcon.innerHTML = `<path d="M8 5v14l11-7z"/>`; // Play icon
+                    
+                    sourceSelector.disabled = false;
+                }
+
+                // Time picker
+                document.getElementById('time-picker').value = data.schedule_time;
+
+                // Render Queue list
+                renderQueue(data.queue_preview, data.queue_count);
+            } catch (err) {
+                console.error("Errore nel recupero dello stato:", err);
+            }
+        }
+
+        function renderQueue(queue, total) {
+            const list = document.getElementById('queue-list');
+            list.innerHTML = "";
+            
+            if (queue.length === 0) {
+                list.innerHTML = `
+                    <div class="no-items">
+                        <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <h3>Coda vuota!</h3>
+                        <p>Nessun nuovo file da elaborare in <code>raw/</code> o <code>Meetings/</code>.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            queue.forEach(item => {
+                let source = "altro";
+                let badgeClass = "tag-other";
+                
+                if (item.startsWith("raw/notion/")) { source = "notion"; badgeClass = "tag-notion"; }
+                else if (item.startsWith("raw/mail/")) { source = "mail"; badgeClass = "tag-mail"; }
+                else if (item.startsWith("raw/drive/")) { source = "drive"; badgeClass = "tag-drive"; }
+                else if (item.startsWith("raw/calendar/")) { source = "calendar"; badgeClass = "tag-calendar"; }
+                else if (item.startsWith("raw/web/")) { source = "web"; badgeClass = "tag-web"; }
+                else if (item.startsWith("Meetings/")) { source = "meetings"; badgeClass = "tag-meetings"; }
+                
+                const filename = item.split('/').pop();
+                
+                list.innerHTML += `
+                    <div class="queue-item">
+                        <span class="source-tag ${badgeClass}">${source}</span>
+                        <div class="file-name" title="${item}">${filename}</div>
+                    </div>
+                `;
+            });
+
+            if (total > 10) {
+                list.innerHTML += `
+                    <div style="text-align: center; padding-top: 10px; color: var(--text-muted); font-size: 0.85rem; font-weight: 500;">
+                        ...e altri ${total - 10} file in attesa di essere elaborati...
+                    </div>
+                `;
+            }
+        }
+
+        // Toggle start/stop ingestion
+        async function toggleIngestion() {
+            if (isRunning) {
+                // Stop ingestion
+                try {
+                    const res = await fetch('/api/ingest/stop', { method: 'POST' });
+                    if (res.ok) {
+                        showToast("Ingestione arrestata.");
+                        fetchStatus();
+                    } else {
+                        const data = await res.json();
+                        showToast(`Errore: ${data.detail || 'Impossibile completare.'}`);
+                    }
+                } catch (err) {
+                    console.error("Errore nel fermare l'ingestione:", err);
+                    showToast("Errore di connessione col server.");
+                }
+            } else {
+                // Start ingestion with selected source
+                const source = document.getElementById('source-selector').value;
+                try {
+                    const res = await fetch(`/api/ingest/start?source=${source}`, { method: 'POST' });
+                    if (res.ok) {
+                        showToast(`Ingestione avviata (${source})!`);
+                        fetchStatus();
+                    } else {
+                        const data = await res.json();
+                        showToast(`Errore: ${data.detail || 'Impossibile completare.'}`);
+                    }
+                } catch (err) {
+                    console.error("Errore nell'avviare l'ingestione:", err);
+                    showToast("Errore di connessione col server.");
+                }
+            }
+        }
+
+        // Save Scheduled time to settings.md and launchd
+        async function saveSchedule() {
+            const time = document.getElementById('time-picker').value;
+            try {
+                const res = await fetch('/api/schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ time: time })
+                });
+                if (res.ok) {
+                    showToast("Orario salvato! launchd aggiornato.");
+                    fetchStatus();
+                } else {
+                    showToast("Errore nel salvataggio dell'orario.");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Errore di rete.");
+            }
+        }
+
+        // Clear console log view
+        function clearConsole() {
+            document.getElementById('console-logs').innerHTML = "";
+        }
+
+        // Toast show helper
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Setup real-time log streaming using Server-Sent Events
+        function setupLogStream() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            eventSource = new EventSource('/api/logs/stream');
+            const logsBox = document.getElementById('console-logs');
+            
+            eventSource.onmessage = function(event) {
+                if (event.data === ":heartbeat") return;
+                
+                const line = event.data;
+                let lineClass = "info";
+                
+                // Color formatting logic based on keywords
+                if (line.includes("Completata") || line.includes("successo") || line.includes("commit effettuato") || line.includes("Commit")) {
+                    lineClass = "success";
+                } else if (line.includes("Errore") || line.includes("fallito") || line.includes("fatal")) {
+                    lineClass = "error";
+                } else if (line.includes("Avviso") || line.includes("Attenzione") || line.includes("Pre-filtro") || line.includes("Saltato")) {
+                    lineClass = "warning";
+                }
+                
+                const lineDiv = document.createElement('div');
+                lineDiv.className = `console-line ${lineClass}`;
+                lineDiv.innerText = line;
+                logsBox.appendChild(lineDiv);
+                
+                // Keep scroll at bottom
+                logsBox.scrollTop = logsBox.scrollHeight;
+            };
+
+            eventSource.onerror = function() {
+                // Auto reconnect on failure
+                setTimeout(setupLogStream, 5000);
+            };
+        }
+
+        // Initial setup and polling loops
+        fetchStatus();
+        setupLogStream();
+        setInterval(fetchStatus, 3000); // Poll status every 3s
+    </script>
+</body>
+</html>

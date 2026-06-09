@@ -1,0 +1,767 @@
+import os
+import sys
+import subprocess
+import re
+import shutil
+import time
+from engine.utils.markdown import load_settings
+from engine.tools.drive_tools import extract_pdf_text, extract_docx_text
+
+def get_vault_path() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+def run_applescript(script: str) -> str:
+    """
+    Esegue uno script AppleScript in modo sicuro passando la stringa tramite stdin a osascript.
+    """
+    process = subprocess.Popen(
+        ['osascript'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8"
+    )
+    stdout, stderr = process.communicate(input=script)
+    if process.returncode != 0:
+        raise RuntimeError(f"AppleScript fallito: {stderr}")
+    return stdout
+
+def is_special_mailbox(mb_path: str) -> bool:
+    """
+    Ritorna True se il percorso della mailbox contiene parole chiave speciali/di servizio.
+    """
+    mb_lower = mb_path.lower()
+    special_keywords = [
+        "trash", "cestino", "deleted", "eliminati", "eliminate", 
+        "junk", "indesiderata", "spam", "draft", "bozze", 
+        "template", "sendlater", "outbox"
+    ]
+    return any(keyword in mb_lower for keyword in special_keywords)
+
+def build_mailbox_ref(mailbox_path: str, account_name: str = None) -> str:
+    """
+    Costruisce l'espressione AppleScript per referenziare una mailbox (anche annidata).
+    """
+    parts = mailbox_path.split("/")
+    ref = f'mailbox "{parts[-1]}"'
+    for part in reversed(parts[:-1]):
+        ref += f' of mailbox "{part}"'
+    if account_name:
+        ref += f' of account "{account_name}"'
+    return ref
+
+def extract_body_from_mime(mime_text: str) -> str:
+    import email
+    from email.policy import default
+    import html
+    try:
+        msg = email.message_from_string(mime_text, policy=default)
+        body = msg.get_body(preferencelist=('plain', 'html'))
+        if body:
+            content = body.get_content()
+            if body.get_content_type() == 'text/html':
+                content = re.sub(r'<script.*?>.*?</script>', '', content, flags=re.DOTALL | re.IGNORECASE)
+                content = re.sub(r'<style.*?>.*?</style>', '', content, flags=re.DOTALL | re.IGNORECASE)
+                content = re.sub(r'<br\s*/?>', '\n', content, flags=re.IGNORECASE)
+                content = re.sub(r'</p>', '\n\n', content, flags=re.IGNORECASE)
+                content = re.sub(r'</div>', '\n', content, flags=re.IGNORECASE)
+                content = re.sub(r'<[^>]+>', '', content)
+                content = html.unescape(content)
+                content = re.sub(r'\n\s*\n+', '\n\n', content)
+            return content.strip()
+    except Exception as e:
+        return f"[Errore parsing MIME: {e}]"
+    return mime_text
+
+def parse_and_write_messages(raw_output: str, raw_mail_dir: str, attachments_dir: str, metadata_lookup: dict = None) -> int:
+    """
+    Esegue il parsing dei blocchi email scaricati da AppleScript e scrive i relativi file markdown.
+    """
+    msg_blocks = re.findall(r"\[\[MSG_START\]\]\n(.*?)\n\[\[MSG_END\]\]", raw_output, re.DOTALL)
+    written_count = 0
+    
+    for block in msg_blocks:
+        if "ERROR: " in block:
+            print(f"Avviso: errore riscontrato durante lo scaricamento di un messaggio: {block.strip()}")
+            continue
+            
+        try:
+            meta_part, body_part = block.split("[[BODY_START]]\n", 1)
+        except ValueError:
+            continue
+            
+        # Estrazione chiavi metadati
+        msg_id = ""
+        sender = ""
+        subject = ""
+        date_str = ""
+        attachments_str = ""
+        
+        for line in meta_part.splitlines():
+            if line.startswith("ID: "):
+                msg_id = line[4:].strip()
+            elif line.startswith("Sender: "):
+                sender = line[8:].strip()
+            elif line.startswith("Subject: "):
+                subject = line[9:].strip()
+            elif line.startswith("Date: "):
+                date_str = line[6:].strip()
+            elif line.startswith("Attachments: "):
+                attachments_str = line[13:].strip()
+                
+        if not msg_id:
+            continue
+            
+        if metadata_lookup and msg_id:
+            try:
+                meta_item = metadata_lookup.get(int(msg_id))
+                if meta_item:
+                    sender = meta_item.get("sender", sender)
+                    subject = meta_item.get("subject", subject)
+                    date_str = meta_item.get("date", date_str)
+            except Exception:
+                pass
+            
+        filename = f"{msg_id}.md"
+        filepath = os.path.join(raw_mail_dir, filename)
+        
+        # Gestione allegati ed estrazione testo
+        attachments_sections = []
+        if attachments_str:
+            attachment_names = [a.strip() for a in attachments_str.split(",") if a.strip()]
+            for att_name in attachment_names:
+                att_filename = f"{msg_id}_{att_name}"
+                att_filepath = os.path.join(attachments_dir, att_filename)
+                
+                if os.path.exists(att_filepath):
+                    _, ext = os.path.splitext(att_name.lower())
+                    extracted_text = ""
+                    
+                    if ext == ".pdf":
+                        extracted_text = extract_pdf_text(att_filepath)
+                    elif ext in [".docx", ".doc"]:
+                        extracted_text = extract_docx_text(att_filepath)
+                    elif ext in [".txt", ".md"]:
+                        try:
+                            with open(att_filepath, "r", encoding="utf-8", errors="ignore") as f:
+                                extracted_text = f.read()
+                        except Exception as e:
+                            extracted_text = f"[Errore lettura file di testo: {e}]"
+                            
+                    if extracted_text:
+                        att_section = f"\n---\n### Allegato Estratto: {att_name}\n\n{extracted_text}\n"
+                        attachments_sections.append(att_section)
+                        
+        clean_sender = sender.replace('"', '\\"')
+        clean_subject = subject.replace('"', '\\"')
+        
+        if body_part.strip().startswith("[Corpo non scaricato"):
+            body_text = body_part
+        else:
+            body_text = extract_body_from_mime(body_part)
+            
+        md_content = f"""---
+type: email
+message_id: "{msg_id}"
+sender: "{clean_sender}"
+subject: "{clean_subject}"
+date: "{date_str}"
+---
+
+# {subject}
+
+**Da**: {sender}  
+**Data**: {date_str}  
+
+## Contenuto del Messaggio
+
+{body_text}
+"""
+
+        if attachments_sections:
+            md_content += "\n## Allegati ed Estratti Contenuto\n"
+            for section in attachments_sections:
+                md_content += section
+                
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(md_content)
+            
+        written_count += 1
+        
+    return written_count
+
+def apple_mail_sync_to_raw() -> int:
+    """
+    Sincronizza le email dall'app Apple Mail (macOS) in modo ottimizzato in 3 fasi.
+    """
+    if sys.platform != "darwin":
+        print("Sorgente Apple Mail ignorata: supportata solo su macOS.")
+        return 0
+        
+    vault_path = get_vault_path()
+    settings = load_settings(vault_path)
+    
+    mail_settings = settings.get("sources", {}).get("apple_mail", {})
+    if not mail_settings.get("enabled", False):
+        print("Sorgente Apple Mail disabilitata nelle impostazioni.")
+        return 0
+        
+    sync_all_accounts = mail_settings.get("sync_all_accounts", False)
+    mailbox_name = mail_settings.get("mailbox", "SecondBrain")
+    days_back = mail_settings.get("days_back", 0)
+    
+    attachments_dir = os.path.abspath(os.path.join(vault_path, mail_settings.get("attachments_dir", "raw/mail_attachments")))
+    os.makedirs(attachments_dir, exist_ok=True)
+    
+    raw_mail_dir = os.path.abspath(os.path.join(vault_path, "raw", "mail"))
+    os.makedirs(raw_mail_dir, exist_ok=True)
+    
+    print(f"Interrogazione e mappatura Apple Mail (sync_all_accounts={sync_all_accounts}, days_back={days_back})...")
+    
+    # 1. Recupero la lista di mailboxes da sincronizzare
+    mailboxes_to_sync = []
+    
+    if sync_all_accounts:
+        try:
+            acc_names_output = run_applescript('tell application "Mail" to get name of every account')
+            all_acc_names = [x.strip() for x in acc_names_output.split(",") if x.strip()]
+            sos_acc_names = [x for x in all_acc_names if x.startswith("SOS-")]
+        except Exception as e:
+            print(f"Errore nel recupero dei nomi degli account: {e}")
+            return 0
+            
+        if not sos_acc_names:
+            print("Nessun account SOS trovato.")
+            return 0
+            
+        acc_list_applescript = "{" + ", ".join(f'"{name}"' for name in sos_acc_names) + "}"
+        list_mbs_script = f"""
+        set accNames to {acc_list_applescript}
+        set outText to ""
+        repeat with i from 1 to count of accNames
+            set accNameStr to item i of accNames
+            tell application "Mail"
+                try
+                    set mbNames to name of every mailbox of account accNameStr
+                    repeat with j from 1 to count of mbNames
+                        set mbName to item j of mbNames
+                        set outText to outText & accNameStr & "||" & mbName & "\\n"
+                    end repeat
+                end try
+            end tell
+        end repeat
+        return outText
+        """
+        try:
+            mbs_output = run_applescript(list_mbs_script)
+            for line in mbs_output.splitlines():
+                if "||" in line:
+                    acc, path = line.split("||", 1)
+                    if not is_special_mailbox(path):
+                        mailboxes_to_sync.append((acc, path))
+        except Exception as e:
+            print(f"Errore nella scansione delle mailbox: {e}")
+            return 0
+    else:
+        # Trova la mailbox specifica a livello globale o di account
+        find_mb_script = f"""
+        tell application "Mail"
+            repeat with acc in accounts
+                if exists mailbox "{mailbox_name}" of acc then
+                    return name of acc & "||{mailbox_name}"
+                end if
+            end repeat
+            if exists mailbox "{mailbox_name}" then
+                return "||{mailbox_name}"
+            end if
+            return "ERROR: Mailbox '{mailbox_name}' non trovata."
+        end tell
+        """
+        try:
+            find_res = run_applescript(find_mb_script).strip()
+            if find_res.startswith("ERROR:"):
+                print(find_res)
+                return 0
+            acc, path = find_res.split("||", 1)
+            mailboxes_to_sync.append((acc if acc else None, path))
+        except Exception as e:
+            print(f"Errore nella ricerca della mailbox '{mailbox_name}': {e}")
+            return 0
+            
+    print(f"Trovate {len(mailboxes_to_sync)} mailbox da sincronizzare.")
+    total_new_synced = 0
+    
+    # 2. Per ogni mailbox, esegui sincronizzazione a 3 fasi
+    for acc_name, mb_path in mailboxes_to_sync:
+        acc_label = acc_name if acc_name else "Locale"
+        print(f"\nSincronizzazione mailbox: [{acc_label}] -> '{mb_path}'")
+        
+        mb_ref = build_mailbox_ref(mb_path, acc_name)
+        
+        # FASE 1: Recupero vettoriale rapido di tutti i metadati
+        try:
+            start_f1 = time.time()
+            remote_ids = []
+            senders = []
+            subjects = []
+            dates = []
+            
+            # Recuperiamo prima il conteggio totale dei messaggi (operazione istantanea)
+            count_script = f"""
+            tell application "Mail"
+                return count of messages of {mb_ref}
+            end tell
+            """
+            total_count = int(run_applescript(count_script).strip())
+            
+            if total_count > 0:
+                # Recupero vettoriale di tutti i metadati
+                def get_vector_prop(prop_name):
+                    as_script = f"""
+                    tell application "Mail"
+                        set mb to {mb_ref}
+                        set valList to {prop_name} of messages of mb
+                        set oldDelims to AppleScript's text item delimiters
+                        set AppleScript's text item delimiters to "<||>"
+                        set outStr to valList as string
+                        set AppleScript's text item delimiters to oldDelims
+                        return outStr
+                    end tell
+                    """
+                    return run_applescript(as_script).split("<||>")
+
+                print("  - Fase 1 (Mappatura Vettoriale): Recupero ID, mittenti, oggetti e date...")
+                remote_ids_str = get_vector_prop("id")
+                remote_ids = [int(x) for x in remote_ids_str if x.strip()]
+                
+                total_count = len(remote_ids)
+                if total_count > 0:
+                    senders = get_vector_prop("sender")
+                    subjects = get_vector_prop("subject")
+                    dates = get_vector_prop("date received")
+                    
+                    min_len = min(len(remote_ids), len(senders), len(subjects), len(dates))
+                    remote_ids = remote_ids[:min_len]
+                    senders = senders[:min_len]
+                    subjects = subjects[:min_len]
+                    dates = dates[:min_len]
+                    
+                    # Se days_back > 0, eseguiamo la ricerca binaria per limitare l'intervallo
+                    if days_back > 0:
+                        sort_dir = "normal"
+                        if total_count > 5:
+                            sort_script = f"""
+                            tell application "Mail"
+                                set mb to {mb_ref}
+                                set totalCount to {total_count}
+                                try
+                                    set lastDate to date received of message totalCount of mb
+                                    set prevDate to date received of message (totalCount - 4) of mb
+                                    if prevDate is greater than lastDate then
+                                        return "reversed"
+                                    else
+                                        return "normal"
+                                    end if
+                                on error
+                                    return "normal"
+                                end try
+                            end tell
+                            """
+                            sort_dir = run_applescript(sort_script).strip()
+                        
+                        k = None
+                        idx = total_count if sort_dir == "normal" else 1
+                        step = 200
+                        
+                        # Esegui ricerca binaria/salto per data
+                        if sort_dir == "normal":
+                            while idx > 1:
+                                check_idx = max(1, idx - step)
+                                check_script = f"""
+                                tell application "Mail"
+                                    set mb to {mb_ref}
+                                    set dateLimit to (current date) - ({days_back} * days)
+                                    try
+                                        set msgDate to date received of message {check_idx} of mb
+                                        if msgDate is greater than dateLimit then
+                                            return "newer"
+                                        else
+                                            return "older"
+                                        end if
+                                    on error
+                                        return "error"
+                                    end try
+                                end tell
+                                """
+                                res = run_applescript(check_script).strip()
+                                if res == "older":
+                                    low = check_idx
+                                    high = idx
+                                    while low <= high:
+                                        mid = (low + high) // 2
+                                        mid_script = f"""
+                                        tell application "Mail"
+                                            set mb to {mb_ref}
+                                            set dateLimit to (current date) - ({days_back} * days)
+                                            try
+                                                set msgDate to date received of message {mid} of mb
+                                                if msgDate is greater than dateLimit then
+                                                    return "newer"
+                                                else
+                                                    return "older"
+                                                end if
+                                            on error
+                                                return "error"
+                                            end try
+                                        end tell
+                                        """
+                                        mid_res = run_applescript(mid_script).strip()
+                                        if mid_res == "newer":
+                                            k = mid
+                                            high = mid - 1
+                                        else:
+                                            low = mid + 1
+                                    break
+                                else:
+                                    if check_idx == 1:
+                                        k = 1
+                                        break
+                                    idx = check_idx
+                                    step = min(5000, step * 2)
+                            
+                            if k is None and total_count > 0:
+                                check_last_script = f"""
+                                tell application "Mail"
+                                    set mb to {mb_ref}
+                                    set dateLimit to (current date) - ({days_back} * days)
+                                    try
+                                        set msgDate to date received of message {total_count} of mb
+                                        if msgDate is greater than dateLimit then
+                                            return "newer"
+                                        else
+                                            return "older"
+                                        end if
+                                    on error
+                                        return "older"
+                                    end try
+                                end tell
+                                """
+                                if run_applescript(check_last_script).strip() == "newer":
+                                    k = 1
+                                    
+                            if k is not None:
+                                start_idx, end_idx = k, total_count
+                                remote_ids = remote_ids[start_idx-1:end_idx]
+                                senders = senders[start_idx-1:end_idx]
+                                subjects = subjects[start_idx-1:end_idx]
+                                dates = dates[start_idx-1:end_idx]
+                        else:
+                            # reversed logic
+                            while idx < total_count:
+                                check_idx = min(total_count, idx + step)
+                                check_script = f"""
+                                tell application "Mail"
+                                    set mb to {mb_ref}
+                                    set dateLimit to (current date) - ({days_back} * days)
+                                    try
+                                        set msgDate to date received of message {check_idx} of mb
+                                        if msgDate is greater than dateLimit then
+                                            return "newer"
+                                        else
+                                            return "older"
+                                        end if
+                                    on error
+                                        return "error"
+                                    end try
+                                end tell
+                                """
+                                res = run_applescript(check_script).strip()
+                                if res == "older":
+                                    low = idx
+                                    high = check_idx
+                                    while low <= high:
+                                        mid = (low + high) // 2
+                                        mid_script = f"""
+                                        tell application "Mail"
+                                            set mb to {mb_ref}
+                                            set dateLimit to (current date) - ({days_back} * days)
+                                            try
+                                                set msgDate to date received of message {mid} of mb
+                                                if msgDate is greater than dateLimit then
+                                                    return "newer"
+                                                else
+                                                    return "older"
+                                                end if
+                                            on error
+                                                return "error"
+                                            end try
+                                        end tell
+                                        """
+                                        mid_res = run_applescript(mid_script).strip()
+                                        if mid_res == "newer":
+                                            k = mid
+                                            low = mid + 1
+                                        else:
+                                            high = mid - 1
+                                    break
+                                else:
+                                    if check_idx == total_count:
+                                        k = total_count
+                                        break
+                                    idx = check_idx
+                                    step = min(5000, step * 2)
+                                    
+                            if k is None and total_count > 0:
+                                check_first_script = f"""
+                                tell application "Mail"
+                                    set mb to {mb_ref}
+                                    set dateLimit to (current date) - ({days_back} * days)
+                                    try
+                                        set msgDate to date received of message 1 of mb
+                                        if msgDate is greater than dateLimit then
+                                            return "newer"
+                                        else
+                                            return "older"
+                                        end if
+                                    on error
+                                        return "older"
+                                    end try
+                                end tell
+                                """
+                                if run_applescript(check_first_script).strip() == "newer":
+                                    k = total_count
+                                    
+                            if k is not None:
+                                start_idx, end_idx = 1, k
+                                remote_ids = remote_ids[start_idx-1:end_idx]
+                                senders = senders[start_idx-1:end_idx]
+                                subjects = subjects[start_idx-1:end_idx]
+                                dates = dates[start_idx-1:end_idx]
+
+            min_len = len(remote_ids)
+            f1_time = time.time() - start_f1
+            print(f"  - Fase 1 (Mappatura): Rilevate {min_len} email (totale mailbox: {total_count}) in {f1_time:.2f}s.")
+        except Exception as e:
+            print(f"  - Errore nel recupero degli ID per la mailbox {mb_path}: {e}")
+            continue
+            
+        if not remote_ids:
+            continue
+            
+        # FASE 2: Filtro differenziale locale in Python + Scrittura immediata dei messaggi non rilevanti
+        missing_items = []  # list of dicts
+        
+        # Pattern con confini di parola per evitare falsi positivi
+        keywords_pattern = re.compile(
+            r'\b(?:'
+            r'iscritti|iscritt[oa]|iscrizione|iscrizioni|'
+            r'report|'
+            r'ade|adm|usb|mef|'
+            r'partecipanti|partecipante|partecipazione|partecipazioni|'
+            r'anagrafica|'
+            r'corso|corsi|'
+            r'soci|socio|socia|'
+            r'paypal|'
+            r'banca|'
+            r'estratto|'
+            r'registrazione|registrazioni|'
+            r'conferma|'
+            r'pagamento|pagamenti|'
+            r'donazione|donazioni|'
+            r'tesseramento|'
+            r'bonifico|bonifici|'
+            r'ricevuta|ricevute|'
+            r'adesione|adesioni'
+            r')\b',
+            re.IGNORECASE
+        )
+        
+        exclude_senders = [
+            "amazon.it", "amazon.com", "instagram.com", "facebook.com", "google.com",
+            "linkedin.com", "dropbox.com", "zoom.us", "github.com", "pinterest.com",
+            "spotify.com", "netflix.com", "apple.com", "icloud.com"
+        ]
+        
+        non_relevant_written = 0
+        
+        print("  - Fase 2 (Filtro): Identificazione email mancanti...")
+        for i in range(min_len):
+            msg_id = remote_ids[i]
+            sender = senders[i]
+            subject = subjects[i]
+            date_str = dates[i]
+            
+            filepath = os.path.join(raw_mail_dir, f"{msg_id}.md")
+            if not os.path.exists(filepath):
+                sender_lower = sender.lower()
+                is_excluded_sender = any(dom in sender_lower for dom in exclude_senders)
+                
+                is_relevant = False
+                if not is_excluded_sender:
+                    is_relevant = bool(keywords_pattern.search(subject))
+                
+                 # Pattern per le email di cui scaricare SEMPRE il corpo (es. iscrizioni, registrazioni, paypal)
+                strict_body_pattern = re.compile(
+                    r'\b(?:'
+                    r'iscrizione|iscrizioni|iscritt[oa]|'
+                    r'registrazione|registrazioni|'
+                    r'adesione|adesioni|'
+                    r'tesseramento|'
+                    r'paypal|'
+                    r'donazione|donazioni'
+                    r')\b',
+                    re.IGNORECASE
+                )
+                
+                if is_relevant:
+                    is_strict = bool(strict_body_pattern.search(subject))
+                    # Keep index as i + 1 (1-based index in Mail.app mailbox)
+                    missing_items.append({
+                        "index": i + 1,
+                        "id": msg_id,
+                        "sender": sender,
+                        "subject": subject,
+                        "date": date_str,
+                        "strict": is_strict
+                    })
+                else:
+                    clean_sender = sender.replace('"', '\\"')
+                    clean_subject = subject.replace('"', '\\"')
+                    md_content = f"""---
+type: email
+message_id: "{msg_id}"
+sender: "{clean_sender}"
+subject: "{clean_subject}"
+date: "{date_str}"
+---
+
+# {subject}
+
+**Da**: {sender}  
+**Data**: {date_str}  
+
+## Contenuto del Messaggio
+
+[Corpo non scaricato - email di servizio/non rilevante]
+"""
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        f.write(md_content)
+                    non_relevant_written += 1
+                    
+        total_missing = len(missing_items)
+        if total_missing == 0:
+            print(f"  - Sincronizzazione locale completata: Scritte {non_relevant_written} email non rilevanti. 0 nuove email rilevanti.")
+            continue
+            
+        print(f"  - Fase 2 completata: Scritte {non_relevant_written} email non rilevanti. Trovate {total_missing} email rilevanti da scaricare.")
+        
+        # FASE 3: Scaricamento lotti (chunking) dei dettagli dei messaggi rilevanti
+        batch_size = 20
+        mailbox_synced = 0
+        metadata_lookup = {item["id"]: item for item in missing_items}
+        
+        for start_chunk in range(0, total_missing, batch_size):
+            chunk = missing_items[start_chunk:start_chunk + batch_size]
+            batch_indices = [item["index"] for item in chunk]
+            batch_ids = [item["id"] for item in chunk]
+            batch_stricts = ["true" if item["strict"] else "false" for item in chunk]
+            
+            indices_str = "{" + ", ".join(map(str, batch_indices)) + "}"
+            ids_str = "{" + ", ".join(map(str, batch_ids)) + "}"
+            stricts_str = "{" + ", ".join(batch_stricts) + "}"
+            
+            fetch_details_script = f"""
+            set destFolder to "{attachments_dir}"
+            tell application "Mail"
+                with timeout of 600 seconds
+                    set mb to {mb_ref}
+                    set targetIndices to {indices_str}
+                    set targetIds to {ids_str}
+                    set targetStricts to {stricts_str}
+                    set outText to ""
+                    
+                    repeat with i from 1 to count of targetIndices
+                        set idx to item i of targetIndices
+                        set expectedId to item i of targetIds
+                        set isStrict to item i of targetStricts
+                        
+                        try
+                            set theMessage to message idx of mb
+                            set msgId to id of theMessage
+                            
+                            if msgId is not expectedId then
+                                -- Fallback se l'indice è slittato (es. nuovi messaggi arrivati in mailbox)
+                                set theMessage to (first message of mb whose id is expectedId)
+                                set msgId to id of theMessage
+                            end if
+                            
+                            -- Gestione allegati
+                            set attachmentNames to {{}}
+                            set theAttachments to mail attachments of theMessage
+                            set hasAtts to (count of theAttachments) > 0
+                            
+                            if isStrict or hasAtts then
+                                set msgContent to source of theMessage
+                            else
+                                set msgContent to "[Corpo non scaricato - email di servizio/non rilevante]"
+                            end if
+                            
+                            repeat with theAttachment in theAttachments
+                                try
+                                    set attName to name of theAttachment
+                                    set end of attachmentNames to attName
+                                    set saveAtt to false
+                                    if attName ends with ".csv" or attName ends with ".xlsx" or attName ends with ".xls" or attName ends with ".CSV" or attName ends with ".XLSX" or attName ends with ".XLS" then
+                                        set attNameStr to (attName as string)
+                                        if attNameStr contains "iscritti" or attNameStr contains "report" or attNameStr contains "ade" or attNameStr contains "adm" or attNameStr contains "usb" or attNameStr contains "mef" or attNameStr contains "partecipanti" or attNameStr contains "anagrafica" or attNameStr contains "corso" or attNameStr contains "soci" or attNameStr contains "paypal" or attNameStr contains "banca" or attNameStr contains "estratto" then
+                                            set saveAtt to true
+                                        end if
+                                    end if
+                                    if saveAtt then
+                                        set savePath to (destFolder & "/" & msgId & "_" & attName)
+                                        save theAttachment in POSIX file savePath
+                                    end if
+                                end try
+                            end repeat
+                            
+                            set oldDelims to AppleScript's text item delimiters
+                            set AppleScript's text item delimiters to ", "
+                            set attListStr to attachmentNames as string
+                            set AppleScript's text item delimiters to oldDelims
+                            
+                            -- Output strutturato
+                            set outText to outText & "[[MSG_START]]\\n"
+                            set outText to outText & "ID: " & msgId & "\\n"
+                            set outText to outText & "Attachments: " & attListStr & "\\n"
+                            set outText to outText & "[[BODY_START]]\\n" & msgContent & "\\n[[MSG_END]]\\n"
+                        on error err
+                            set outText to outText & "[[MSG_START]]\\n"
+                            set outText to outText & "ID: " & expectedId & "\\n"
+                            set outText to outText & "ERROR: " & err & "\\n"
+                            set outText to outText & "[[MSG_END]]\\n"
+                        end try
+                    end repeat
+                    return outText
+                end timeout
+            end tell
+            """
+            
+            try:
+                print(f"  - Fase 3 (Lotti): Invio AppleScript per messaggi {start_chunk} a {start_chunk + len(chunk)}...", flush=True)
+                t0_batch = time.time()
+                details_output = run_applescript(fetch_details_script)
+                print(f"  - Fase 3 (Lotti): AppleScript completato in {time.time() - t0_batch:.2f}s. Scrittura file in corso...", flush=True)
+                chunk_written = parse_and_write_messages(details_output, raw_mail_dir, attachments_dir, metadata_lookup)
+                mailbox_synced += chunk_written
+                total_new_synced += chunk_written
+                
+                print(f"  - Fase 3 (Lotti): Scaricati {min(start_chunk + batch_size, total_missing)}/{total_missing} messaggi rilevanti...", flush=True)
+            except Exception as e:
+                print(f"  - Errore durante lo scaricamento del lotto {start_chunk}: {e}", flush=True)
+                
+        print(f"  - Completato: {mailbox_synced} nuove email sincronizzate per '{mb_path}'.")
+        
+    return total_new_synced
+
+
