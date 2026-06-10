@@ -15,6 +15,7 @@ from engine.tools.drive_tools import drive_sync_to_raw
 from engine.tools.mail_tools import apple_mail_sync_to_raw
 from engine.tools.web_tools import web_sync_to_raw
 from engine.tools.calendar_tools import calendar_sync_to_raw
+from engine.tools.crm_cleaner import clean_crm_contacts
 from engine.ingest_agent import run_ingest
 from engine.query_agent import run_interactive_loop, run_chat_watcher, run_single_query
 from engine.reflect_agent import run_reflection
@@ -224,6 +225,8 @@ def main():
             # First sync, then ingest
             handle_sync(source=args.source)
         asyncio.run(run_ingest(dry_run=args.dry_run, source_filter=args.source))
+        if not args.dry_run:
+            clean_crm_contacts()
         
     elif args.command == "query":
         if args.question:
