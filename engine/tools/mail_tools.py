@@ -115,14 +115,25 @@ def imap_sync_to_raw() -> int:
                     mail_client.logout()
                     continue
             
-            status, messages = mail_client.search(None, "ALL")
+            # Calcolo data limite se days_back è specificato
+            days_back = mail_settings.get("days_back", 0)
+            if days_back > 0:
+                import datetime
+                date_limit = datetime.date.today() - datetime.timedelta(days=days_back)
+                months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                imap_date_str = f"{date_limit.day:02d}-{months[date_limit.month - 1]}-{date_limit.year}"
+                print(f"Ricerca e-mail a partire dal {imap_date_str} (ultimi {days_back} giorni)...")
+                status, messages = mail_client.search(None, f"SINCE {imap_date_str}")
+            else:
+                status, messages = mail_client.search(None, "ALL")
+
             if status != "OK" or not messages[0]:
                 print(f"Nessun messaggio trovato nella mailbox per {username}.")
                 mail_client.logout()
                 continue
                 
             message_ids = messages[0].split()
-            print(f"Trovate {len(message_ids)} email totali sul server IMAP per {username}.")
+            print(f"Trovate {len(message_ids)} email totali sul server IMAP per {username} con le impostazioni correnti.")
             
             message_ids.reverse()
             
@@ -130,77 +141,80 @@ def imap_sync_to_raw() -> int:
             exclude_domains = mail_settings.get("exclude_domains", [])
             exclude_subjects = mail_settings.get("exclude_subjects", [])
             
-            keywords_pattern = re.compile(
-                r'\b(?:'
-                r'iscritti|iscritt[oa]|iscrizione|iscrizioni|'
-                r'report|'
-                r'ade|adm|usb|mef|'
-                r'partecipanti|partecipante|partecipazione|partecipazioni|'
-                r'anagrafica|'
-                r'corso|corsi|'
-                r'soci|socio|socia|'
-                r'paypal|'
-                r'banca|'
-                r'estratto|'
-                r'registrazione|registrazioni|'
-                r'conferma|'
-                r'pagamento|pagamenti|'
-                r'donazione|donazioni|'
-                r'tesseramento|'
-                r'bonifico|bonifici|'
-                r'ricevuta|ricevute|'
-                r'adesione|adesioni'
-                r')\b',
-                re.IGNORECASE
-            )
+            # Carica in memoria gli UID delle email già scaricate per fare O(1) lookup
+            clean_user = re.sub(r'[^a-zA-Z0-9]', '_', username)
+            existing_uids = set()
+            if os.path.exists(raw_mail_dir):
+                for name in os.listdir(raw_mail_dir):
+                    if name.startswith(f"imap_{clean_user}_") and name.endswith(".md"):
+                        prefix = f"imap_{clean_user}_"
+                        uid = name[len(prefix):-3]
+                        existing_uids.add(uid)
+            
+            missing_uids = []
+            for msg_uid_bytes in message_ids:
+                msg_uid = msg_uid_bytes.decode()
+                if msg_uid not in existing_uids:
+                    missing_uids.append(msg_uid)
+                    
+            print(f"Trovate {len(missing_uids)} email mancanti da analizzare su {len(message_ids)} totali.")
             
             new_synced = 0
             
-            for msg_uid_bytes in message_ids:
-                msg_uid = msg_uid_bytes.decode()
-                clean_user = re.sub(r'[^a-zA-Z0-9]', '_', username)
-                filename = f"imap_{clean_user}_{msg_uid}.md"
-                filepath = os.path.join(raw_mail_dir, filename)
+            # Scarica gli header in lotti (batch)
+            batch_size = 100
+            for start_idx in range(0, len(missing_uids), batch_size):
+                batch = missing_uids[start_idx:start_idx + batch_size]
+                batch_str = ",".join(batch)
                 
-                if os.path.exists(filepath):
+                try:
+                    status, fetch_data = mail_client.uid('fetch', batch_str, '(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])')
+                    if status != "OK" or not fetch_data:
+                        continue
+                except Exception as batch_err:
+                    print(f"Errore nel fetch degli header del lotto da {start_idx}: {batch_err}")
                     continue
+                
+                headers_by_uid = {}
+                current_uid = None
+                
+                for part in fetch_data:
+                    if isinstance(part, tuple):
+                        preamble = part[0].decode("utf-8", errors="ignore")
+                        uid_match = re.search(r'\bUID\s+(\d+)\b', preamble, re.IGNORECASE)
+                        if uid_match:
+                            current_uid = uid_match.group(1)
+                            header_content = part[1].decode("utf-8", errors="ignore")
+                            headers_by_uid[current_uid] = header_content
+                
+                for msg_uid in batch:
+                    header_text = headers_by_uid.get(msg_uid)
+                    if not header_text:
+                        continue
                     
-                status, header_data = mail_client.fetch(msg_uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
-                if status != "OK" or not header_data:
-                    continue
+                    subject = ""
+                    sender = ""
+                    date_str = ""
                     
-                header_text = ""
-                for response_part in header_data:
-                    if isinstance(response_part, tuple):
-                        header_text = response_part[1].decode("utf-8", errors="ignore")
-                        break
-                
-                subject = ""
-                sender = ""
-                date_str = ""
-                
-                for line in header_text.splitlines():
-                    if line.lower().startswith("subject:"):
-                        subject = decode_mime_header(line[8:].strip())
-                    elif line.lower().startswith("from:"):
-                        sender = decode_mime_header(line[5:].strip())
-                    elif line.lower().startswith("date:"):
-                        date_str = line[5:].strip()
-                
-                sender_lower = sender.lower()
-                subject_lower = subject.lower()
-                
-                if any(exc in sender_lower for exc in exclude_senders) or \
-                   any(dom in sender_lower for dom in exclude_domains) or \
-                   any(subj in subject_lower for subj in exclude_subjects):
-                    continue
+                    for line in header_text.splitlines():
+                        if line.lower().startswith("subject:"):
+                            subject = decode_mime_header(line[8:].strip())
+                        elif line.lower().startswith("from:"):
+                            sender = decode_mime_header(line[5:].strip())
+                        elif line.lower().startswith("date:"):
+                            date_str = line[5:].strip()
+                            
+                    sender_lower = sender.lower()
+                    subject_lower = subject.lower()
                     
-                is_relevant = True
-                
-                if not is_relevant:
-                    clean_sender = sender.replace('"', '\\"')
-                    clean_subject = subject.replace('"', '\\"')
-                    md_content = f"""---
+                    if any(exc in sender_lower for exc in exclude_senders) or \
+                       any(dom in sender_lower for dom in exclude_domains) or \
+                       any(subj in subject_lower for subj in exclude_subjects):
+                        # Scrivi comunque un file segnaposto per evitare di riscaricarla la prossima volta
+                        filepath = os.path.join(raw_mail_dir, f"imap_{clean_user}_{msg_uid}.md")
+                        clean_sender = sender.replace('"', '\\"')
+                        clean_subject = subject.replace('"', '\\"')
+                        md_content = f"""---
 type: email
 message_id: "imap_{clean_user}_{msg_uid}"
 sender: "{clean_sender}"
@@ -217,94 +231,100 @@ date: "{date_str}"
 
 [Corpo non scaricato - email di servizio/non rilevante]
 """
-                    with open(filepath, "w", encoding="utf-8") as f:
-                        f.write(md_content)
-                    continue
+                        with open(filepath, "w", encoding="utf-8") as f:
+                            f.write(md_content)
+                        continue
                     
-                status, msg_data = mail_client.fetch(msg_uid, "(BODY.PEEK[])")
-                if status != "OK" or not msg_data:
-                    continue
+                    filepath = os.path.join(raw_mail_dir, f"imap_{clean_user}_{msg_uid}.md")
                     
-                raw_email_content = None
-                for response_part in msg_data:
-                    if isinstance(response_part, tuple):
-                        raw_email_content = response_part[1]
-                        break
-                        
-                if not raw_email_content:
-                    continue
-                    
-                msg = email.message_from_bytes(raw_email_content, policy=default)
-                
-                body_text = ""
-                attachments_sections = []
-                
-                for part in msg.walk():
-                    content_type = part.get_content_type()
-                    content_disposition = str(part.get("Content-Disposition"))
-                    
-                    if "attachment" in content_disposition:
-                        filename_att = part.get_filename()
-                        if filename_att:
-                            filename_att = decode_mime_header(filename_att)
-                            _, ext = os.path.splitext(filename_att.lower())
-                            save_att = False
-                            if ext in [".csv", ".xlsx", ".xls", ".pdf", ".docx", ".doc", ".txt", ".md"]:
-                                att_name_lower = filename_att.lower()
-                                keywords_att = [
-                                    "iscritti", "report", "ade", "adm", "usb", "mef", 
-                                    "partecipanti", "anagrafica", "corso", "soci", 
-                                    "paypal", "banca", "estratto", "tessera", "donazione"
-                                ]
-                                if any(k in att_name_lower for k in keywords_att) or ext == ".pdf":
-                                    save_att = True
-                                    
-                            if save_att:
-                                att_filename = f"imap_{clean_user}_{msg_uid}_{filename_att}"
-                                att_filepath = os.path.join(attachments_dir, att_filename)
-                                
-                                payload = part.get_payload(decode=True)
-                                if payload:
-                                    with open(att_filepath, "wb") as f:
-                                        f.write(payload)
-                                        
-                                    extracted_text = ""
-                                    if ext == ".pdf":
-                                        extracted_text = extract_pdf_text(att_filepath)
-                                    elif ext in [".docx", ".doc"]:
-                                        extracted_text = extract_docx_text(att_filepath)
-                                    elif ext in [".txt", ".md"]:
-                                        try:
-                                            extracted_text = payload.decode("utf-8", errors="ignore")
-                                        except Exception as e:
-                                            extracted_text = f"[Errore lettura file di testo: {e}]"
-                                            
-                                    if extracted_text:
-                                        att_section = f"\n---\n### Allegato Estratto: {filename_att}\n\n{extracted_text}\n"
-                                        attachments_sections.append(att_section)
-                    
-                    elif content_type == "text/plain" and not body_text:
-                        payload = part.get_payload(decode=True)
-                        if payload:
-                            body_text = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
-                    elif content_type == "text/html" and not body_text:
-                        payload = part.get_payload(decode=True)
-                        if payload:
-                            html_content = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
-                            body_text = extract_body_from_mime(html_content)
-                            
-                if not body_text:
                     try:
-                        body = msg.get_body(preferencelist=('plain', 'html'))
-                        if body:
-                            body_text = body.get_content()
-                    except Exception:
-                        body_text = "[Nessun contenuto di testo estraibile]"
+                        status, msg_data = mail_client.uid('fetch', msg_uid, '(BODY.PEEK[])')
+                        if status != "OK" or not msg_data:
+                            continue
+                    except Exception as fetch_body_err:
+                        print(f"Errore nel fetch del corpo per UID {msg_uid}: {fetch_body_err}")
+                        continue
                         
-                clean_sender = sender.replace('"', '\\"')
-                clean_subject = subject.replace('"', '\\"')
-                
-                md_content = f"""---
+                    raw_email_content = None
+                    for response_part in msg_data:
+                        if isinstance(response_part, tuple):
+                            raw_email_content = response_part[1]
+                            break
+                            
+                    if not raw_email_content:
+                        continue
+                        
+                    msg = email.message_from_bytes(raw_email_content, policy=default)
+                    
+                    body_text = ""
+                    attachments_sections = []
+                    
+                    for part in msg.walk():
+                        content_type = part.get_content_type()
+                        content_disposition = str(part.get("Content-Disposition"))
+                        
+                        if "attachment" in content_disposition:
+                            filename_att = part.get_filename()
+                            if filename_att:
+                                filename_att = decode_mime_header(filename_att)
+                                _, ext = os.path.splitext(filename_att.lower())
+                                save_att = False
+                                if ext in [".csv", ".xlsx", ".xls", ".pdf", ".docx", ".doc", ".txt", ".md"]:
+                                    att_name_lower = filename_att.lower()
+                                    keywords_att = [
+                                        "iscritti", "report", "ade", "adm", "usb", "mef", 
+                                        "partecipanti", "anagrafica", "corso", "soci", 
+                                        "paypal", "banca", "estratto", "tessera", "donazione"
+                                    ]
+                                    if any(k in att_name_lower for k in keywords_att) or ext == ".pdf":
+                                        save_att = True
+                                        
+                                if save_att:
+                                    att_filename = f"imap_{clean_user}_{msg_uid}_{filename_att}"
+                                    att_filepath = os.path.join(attachments_dir, att_filename)
+                                    
+                                    payload = part.get_payload(decode=True)
+                                    if payload:
+                                        with open(att_filepath, "wb") as f:
+                                            f.write(payload)
+                                            
+                                        extracted_text = ""
+                                        if ext == ".pdf":
+                                            extracted_text = extract_pdf_text(att_filepath)
+                                        elif ext in [".docx", ".doc"]:
+                                            extracted_text = extract_docx_text(att_filepath)
+                                        elif ext in [".txt", ".md"]:
+                                            try:
+                                                extracted_text = payload.decode("utf-8", errors="ignore")
+                                            except Exception as e:
+                                                extracted_text = f"[Errore lettura file di testo: {e}]"
+                                                
+                                        if extracted_text:
+                                            att_section = f"\n---\n### Allegato Estratto: {filename_att}\n\n{extracted_text}\n"
+                                            attachments_sections.append(att_section)
+                        
+                        elif content_type == "text/plain" and not body_text:
+                            payload = part.get_payload(decode=True)
+                            if payload:
+                                body_text = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
+                        elif content_type == "text/html" and not body_text:
+                            payload = part.get_payload(decode=True)
+                            if payload:
+                                html_content = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
+                                body_text = extract_body_from_mime(html_content)
+                                
+                    if not body_text:
+                        try:
+                            body = msg.get_body(preferencelist=('plain', 'html'))
+                            if body:
+                                body_text = body.get_content()
+                        except Exception:
+                            body_text = "[Nessun contenuto di testo estraibile]"
+                            
+                    clean_sender = sender.replace('"', '\\"')
+                    clean_subject = subject.replace('"', '\\"')
+                    
+                    md_content = f"""---
 type: email
 message_id: "imap_{clean_user}_{msg_uid}"
 sender: "{clean_sender}"
@@ -322,16 +342,16 @@ date: "{date_str}"
 {body_text.strip()}
 """
 
-                if attachments_sections:
-                    md_content += "\n## Allegati ed Estratti Contenuto\n"
-                    for section in attachments_sections:
-                        md_content += section
+                    if attachments_sections:
+                        md_content += "\n## Allegati ed Estratti Contenuto\n"
+                        for section in attachments_sections:
+                            md_content += section
+                            
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        f.write(md_content)
                         
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(md_content)
-                    
-                new_synced += 1
-                
+                    new_synced += 1
+            
             mail_client.logout()
             print(f"Sincronizzazione completata per {username}. Scaricate {new_synced} nuove email rilevanti.")
             total_new_synced += new_synced
