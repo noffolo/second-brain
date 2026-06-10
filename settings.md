@@ -32,6 +32,21 @@ sources:
     exclude_domains: ["glovoapp.com", "glovo.com", "gog.com", "booking.com", "promo.booking.com", "airbnb.com", "spotify.com", "diib.com", "coinbase.com", "crunchyroll.com", "medium.com", "ibs.it", "ifttt.com", "klingai.com", "repubblica.it"]
     exclude_subjects: ["codice sconto", "accesso temporaneo", "accesso da nuovo", "daily digest", "mancato recapito", "fattura elettronica", "avviso di accesso", "promozionale"]
 
+  mail_accounts:                     # Configura qui una lista di account IMAP per la sincronizzazione di caselle email multiple
+    # - enabled: true
+    #   server: "imaps.aruba.it"
+    #   port: 993
+    #   username: "alessandro@ff3300.com"
+    #   mailbox: "INBOX"
+    #   password_env: "IMAP_PASSWORD_1"
+    # - enabled: true
+    #   server: "imap.gmail.com"
+    #   port: 993
+    #   username: "altra_mail@gmail.com"
+    #   mailbox: "INBOX"
+    #   password_env: "IMAP_PASSWORD_2"
+
+
   web:
     enabled: true
     urls:
