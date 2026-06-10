@@ -194,8 +194,9 @@ def search_wiki(query: str) -> list[dict]:
             
         matching_files = [line.strip() for line in res.stdout.splitlines() if line.strip()]
         
-        # Limita ai primi 20 file
-        for rel_filepath in matching_files[:20]:
+        for rel_filepath in matching_files:
+            if len(results) >= 20:
+                break
             # Solo file che si trovano nelle cartelle monitorate
             allowed = False
             for sdir in ["wiki", "CRM", "journal", "Meetings", "Microthemes"]:

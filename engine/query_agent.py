@@ -91,19 +91,57 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig) -> 
         
         # 2. RAG locale: cerca nel vault ed estrae il contesto
         search_results = search_wiki(question)
+        if not search_results:
+            # Fallback a ricerca per parole chiave con stemming italiano rudimentale
+            words = re.sub(r'[^\w\s\’\']', ' ', question.lower()).split()
+            stopwords = {
+                "l'anno", "anno", "anni", "abbiamo", "fatto", "facciamo", "fare", "più", "classifica", "clienti", "cliente",
+                "in", "con", "cui", "e", "il", "la", "i", "gli", "le", "di", "da", "per", "su", "a", "del", "dei", "degli",
+                "assoluto", "assoluto", "quello", "quelli", "quella", "questo", "questi", "questa", "sono", "stato", "stati", "era", "erano"
+            }
+            keywords = []
+            for w in words:
+                w_clean = w.strip("’'")
+                if len(w_clean) >= 4 and w_clean not in stopwords:
+                    stem = w_clean
+                    if w_clean[-1] in 'oaiei' and len(w_clean) > 4:
+                        stem = w_clean[:-1]
+                    if stem not in keywords:
+                        keywords.append(stem)
+            
+            seen_paths = set()
+            search_results = []
+            for kw in keywords[:3]:  # primi 3 stem più significativi
+                kw_results = search_wiki(kw)
+                for r in kw_results:
+                    if r['path'] not in seen_paths:
+                        seen_paths.add(r['path'])
+                        search_results.append(r)
+        
         context = ""
         if search_results:
             context = "\n\nRisultati della ricerca nel vault:\n"
-            for r in search_results[:5]: # top 5
+            for r in search_results[:8]: # top 8
                 page_content = read_wiki_page_content(r['path'])
                 context += f"\n--- Nota: {r['path']} ---\n{page_content}\n"
                 
         enriched_prompt = f"{question}\n{context}"
         
+        # Modifica le system instructions per informare il modello di fallback
+        fallback_instructions = f"""
+{config.system_instructions}
+
+---
+[MODALITÀ FALLBACK - NO STRUMENTI]
+In questa modalità non hai accesso diretto agli strumenti (search_wiki, read_wiki_page_content).
+Abbiamo già eseguito una ricerca locale per te nel vault Obsidian e abbiamo allegato i risultati pertinenti qui sopra.
+Usa esclusivamente il contesto fornito per rispondere alla domanda dell'utente. Non cercare di invocare funzioni o righe di comando, e rispondi direttamente e in modo naturale all'utente in italiano.
+"""
+        
         from engine.utils.llm_fallback import call_llm_with_fallback
         return await call_llm_with_fallback(
             prompt=enriched_prompt,
-            system_instructions=config.system_instructions,
+            system_instructions=fallback_instructions,
             gemini_config=config
         )
 
