@@ -2,6 +2,8 @@ import os
 import datetime
 from dotenv import load_dotenv
 from engine.utils.markdown import load_settings, to_markdown
+from engine.tools.notion_tools import query_notion_database
+
 
 try:
     from notion_client import Client
@@ -88,7 +90,7 @@ def notion_calendar_sync() -> int:
             body = {}
             if next_cursor:
                 body["start_cursor"] = next_cursor
-            resp = client.request(path=f"databases/{db_id}/query", method="POST", body=body)
+            resp = query_notion_database(client, db_id, body)
             results.extend(resp.get("results", []))
             has_more = resp.get("has_more", False)
             next_cursor = resp.get("next_cursor")
