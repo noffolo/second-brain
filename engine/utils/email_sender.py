@@ -29,12 +29,15 @@ def send_email(subject: str, body_text: str) -> bool:
         msg["From"] = smtp_from
         msg["To"] = smtp_to
         
-        # Connect to SMTP server
-        server = smtplib.SMTP(smtp_server, int(smtp_port), timeout=30)
-        server.ehlo()
-        if smtp_port == "587":
-            server.starttls()
+        # Connect to SMTP server (supports both SSL on 465 and STARTTLS on 587)
+        if smtp_port == "465":
+            server = smtplib.SMTP_SSL(smtp_server, int(smtp_port), timeout=30)
+        else:
+            server = smtplib.SMTP(smtp_server, int(smtp_port), timeout=30)
             server.ehlo()
+            if smtp_port == "587":
+                server.starttls()
+                server.ehlo()
             
         server.login(smtp_username, smtp_password)
         server.sendmail(smtp_from, [smtp_to], msg.as_string())
