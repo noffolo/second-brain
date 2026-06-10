@@ -92,6 +92,8 @@ async def generate_briefing_text(event_fm: dict, event_body: str, context_notes:
     Il briefing deve contestualizzare l'incontro raccogliendo note passate, persone del CRM e focus emersi dai diari.
     Fornisci indicazioni strategiche sui temi da affrontare, punti critici storici, e su chi sono le persone coinvolte.
     Parla in prima persona come assistente dell'utente. Usa un tono acuto, limpido, sintetico ma profondo (in italiano).
+    Garantisci che il testo sia formattato in Markdown pulito, senza racchiuderlo in blocchi di codice markdown (come ``` o ```markdown).
+    Evita la capitalizzazione in stile inglese (es. usa le maiuscole solo dove richiesto dalla grammatica italiana).
     """
     
     prompt = f"""
@@ -109,11 +111,12 @@ async def generate_briefing_text(event_fm: dict, event_body: str, context_notes:
     {context_str}
     
     Struttura il briefing in 3-4 brevi sezioni:
-    1. CONTESTO GENERALE & CHI COINVOLGE: chi sono le persone rilevanti e la loro storia (dal CRM/note).
-    2. TEMI CHIAVE & CRONOLOGIA: ultime discussioni emerse dai verbali dei meeting o dal diario.
-    3. PUNTI APERTI & COSA CHIEDERE: suggerimenti strategici su cosa affrontare o chiarire.
+    ## 1. CONTESTO GENERALE & CHI COINVOLGE: chi sono le persone rilevanti e la loro storia (dal CRM/note).
+    ## 2. TEMI CHIAVE & CRONOLOGIA: ultime discussioni emerse dai verbali dei meeting o dal diario.
+    ## 3. PUNTI APERTI & COSA CHIEDERE: suggerimenti strategici su cosa affrontare o chiarire.
     
-    Scrivi direttamente il testo della mail, pronto per essere inviato.
+    IMPORTANTE: Scrivi direttamente il testo dell'email in formato Markdown standard (es. intestazioni con ##, grassetti con **, liste con -).
+    NON includere delimitatori di blocco codice come ``` o ```markdown all'inizio o alla fine del testo.
     """
     
     try:

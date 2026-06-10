@@ -36,11 +36,21 @@ ontology-gen:
 ontology-apply:
 	$(PYTHON) -m engine.main ontology --apply
 
+UNAME_S := $(shell uname -s)
+
 install-service:
+ifeq ($(UNAME_S),Linux)
+	$(PYTHON) engine/systemd_generator.py install
+else
 	$(PYTHON) -m engine.plist_generator install
+endif
 
 uninstall-service:
+ifeq ($(UNAME_S),Linux)
+	$(PYTHON) engine/systemd_generator.py uninstall
+else
 	$(PYTHON) -m engine.plist_generator uninstall
+endif
 
 dashboard:
 	$(PYTHON) -m uvicorn engine.dashboard:app --reload --port 8000

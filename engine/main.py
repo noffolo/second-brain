@@ -191,13 +191,20 @@ def main():
     parser_distill.add_argument("file_path", type=str, help="Percorso del file da distillare")
     parser_distill.add_argument("lang", type=str, nargs="?", default="it", help="Lingua di destinazione (it/en)")
     
+    # Setup
+    subparsers.add_parser("setup", help="Wizard di configurazione interattivo per inizializzare il Secondo Cervello")
+    
     args = parser.parse_args()
     
     if not args.command:
         parser.print_help()
         sys.exit(0)
         
-    if args.command == "sync":
+    if args.command == "setup":
+        from engine.setup_wizard import run_setup_wizard
+        run_setup_wizard()
+        
+    elif args.command == "sync":
         handle_sync()
         
     elif args.command == "ingest":

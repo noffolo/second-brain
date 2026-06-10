@@ -76,6 +76,27 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
     utilizzando i rispettivi modelli richiesti dall'utente.
     """
     import os
+    model_name = gemini_config.model
+    if model_name.startswith("ollama") or os.getenv("OLLAMA_ENABLED") == "true":
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip('/')
+        ollama_model = "llama3"
+        if "/" in model_name:
+            ollama_model = model_name.split("/", 1)[1]
+        elif os.getenv("OLLAMA_MODEL"):
+            ollama_model = os.getenv("OLLAMA_MODEL")
+            
+        try:
+            print(f"Invocazione Ollama locale ({ollama_model}) presso {ollama_host}...")
+            return await call_openai_compatible_api(
+                url=f"{ollama_host}/v1/chat/completions",
+                api_key="ollama",
+                model=ollama_model,
+                system_instructions=system_instructions,
+                prompt=prompt
+            )
+        except Exception as e:
+            print(f"Ollama locale fallito: {e}. Tento con la catena standard.")
+
     if os.getenv("BYPASS_GEMINI") == "true":
         dashscope_key = os.getenv("DASHSCOPE_API_KEY")
         if dashscope_key and not dashscope_key.startswith("YOUR_"):
@@ -137,7 +158,10 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
         try:
             fallback_gemini_config = LocalAgentConfig(
                 model="gemini-1.5-flash",
-                system_instructions=gemini_config.system_instructions
+                system_instructions=gemini_config.system_instructions,
+                vertex=gemini_config.vertex,
+                project=gemini_config.project,
+                location=gemini_config.location
             )
             print(f"Tentativo di elaborazione con Gemini Secondario (gemini-1.5-flash) via Antigravity SDK...")
             async with Agent(fallback_gemini_config) as agent:
@@ -237,6 +261,22 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
         except Exception as e:
             errors.append(f"Zhipu (glm-4): {e}")
             print(f"Zhipu AI fallito: {e}.")
+            
+    # 7. Fallback finale su Ollama locale (se abilitato o se host configurato)
+    if os.getenv("OLLAMA_ENABLED") == "true" or os.getenv("OLLAMA_HOST"):
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip('/')
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama3")
+        try:
+            print(f"Fallback: Invocazione Ollama locale ({ollama_model})...")
+            return await call_openai_compatible_api(
+                url=f"{ollama_host}/v1/chat/completions",
+                api_key="ollama",
+                model=ollama_model,
+                system_instructions=system_instructions,
+                prompt=prompt
+            )
+        except Exception as e:
+            errors.append(f"Ollama ({ollama_model}): {e}")
  
     error_summary = " | ".join(errors)
     raise RuntimeError(f"Tutti i provider di fallback sono falliti o non configurati. Dettagli: {error_summary}")
