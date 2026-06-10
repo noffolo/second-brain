@@ -267,6 +267,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"❌ Impossibile fermare: dashboard non raggiungibile ({e})")
 
+def format_for_telegram(text: str) -> str:
+    import re
+    # 1. Gestisci wikilink con pipe: [[Percorso/Nota|Testo da mostrare]] -> Testo da mostrare
+    text = re.sub(r'\[\[[^\]|]+\|([^\]]+)\]\]', r'\1', text)
+    # 2. Gestisci wikilink semplici: [[Nome Nota]] -> Nome Nota
+    text = re.sub(r'\[\[([^\]]+)\]\]', r'\1', text)
+    # 3. Converti grassetti standard ** in * (Telegram legacy Markdown usa * per il grassetto)
+    text = text.replace("**", "*")
+    return text
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
@@ -278,7 +288,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         answer = await query_agent_answer(user_message)
-        await update.message.reply_text(answer)
+        formatted_answer = format_for_telegram(answer)
+        try:
+            await update.message.reply_text(formatted_answer, parse_mode="Markdown")
+        except Exception as telegram_err:
+            print(f"[Telegram] Invio con parse_mode='Markdown' fallito ({telegram_err}). Invio come testo semplice...")
+            await update.message.reply_text(formatted_answer)
     except Exception as e:
         await update.message.reply_text(f"Errore durante l'elaborazione della domanda: {e}")
 

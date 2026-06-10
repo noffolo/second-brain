@@ -121,9 +121,15 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig) -> 
         context = ""
         if search_results:
             context = "\n\nRisultati della ricerca nel vault:\n"
-            for r in search_results[:8]: # top 8
+            context += "--- CONTENUTI DELLE NOTE PIÙ RILEVANTI ---\n"
+            for r in search_results[:10]: # primi 10 file completi
                 page_content = read_wiki_page_content(r['path'])
                 context += f"\n--- Nota: {r['path']} ---\n{page_content}\n"
+                
+            if len(search_results) > 10:
+                context += "\n--- ALTRE NOTE RILEVANTI TROVATE NEL VAULT (SOLO PERCORSI) ---\n"
+                for r in search_results[10:30]: # altri 20 percorsi per dare visibilità globale
+                    context += f"- {r['path']} (Titolo: {r['title']})\n"
                 
         enriched_prompt = f"{question}\n{context}"
         
