@@ -7,6 +7,10 @@ from typing import Optional, List
 from fastapi import FastAPI, Request, Response, Header, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
+# Carica le variabili d'ambiente prima di tutto
+load_dotenv()
 
 # Add root folder to path for imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
