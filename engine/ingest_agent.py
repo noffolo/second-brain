@@ -38,6 +38,20 @@ class ConceptExtraction(BaseModel):
     @field_validator('related', mode='before')
     @classmethod
     def flatten_related(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if v == "[]" or not v:
+                return []
+            try:
+                import ast
+                parsed = ast.literal_eval(v)
+                if isinstance(parsed, list):
+                    return cls.flatten_related(parsed)
+            except Exception:
+                links = re.findall(r"\[\[.*?\]\]", v)
+                if links:
+                    return links
+                return [x.strip() for x in v.split(",") if x.strip()]
         if isinstance(v, list):
             flat = []
             for item in v:
