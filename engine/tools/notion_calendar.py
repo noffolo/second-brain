@@ -88,7 +88,7 @@ def notion_calendar_sync() -> int:
             body = {}
             if next_cursor:
                 body["start_cursor"] = next_cursor
-            resp = client.databases.query(database_id=db_id, **body)
+            resp = client.request(path=f"databases/{db_id}/query", method="POST", body=body)
             results.extend(resp.get("results", []))
             has_more = resp.get("has_more", False)
             next_cursor = resp.get("next_cursor")
