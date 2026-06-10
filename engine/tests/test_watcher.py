@@ -1,13 +1,14 @@
 import os
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from engine.watcher import watch_vault_changes
 
 @pytest.mark.asyncio
 async def test_watch_vault_changes_ignores_non_relevant():
-    mock_manager = AsyncMock()
+    mock_manager = MagicMock()
     mock_manager.is_running.return_value = False
+    mock_manager.start = AsyncMock(return_value=True)
     
     mock_changes = [
         ("added", "/path/to/vault/raw/mail_attachments/photo.jpg"),
@@ -33,8 +34,9 @@ async def test_watch_vault_changes_ignores_non_relevant():
 
 @pytest.mark.asyncio
 async def test_watch_vault_changes_triggers_relevant():
-    mock_manager = AsyncMock()
+    mock_manager = MagicMock()
     mock_manager.is_running.return_value = False
+    mock_manager.start = AsyncMock(return_value=True)
     
     mock_changes = [
         ("modified", "/path/to/vault/raw/manual/test.md"),
