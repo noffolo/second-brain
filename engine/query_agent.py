@@ -345,7 +345,17 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig) -> 
                 for r in search_results[10:30]: # altri 20 percorsi per dare visibilità globale
                     context += f"- {r['path']} (Titolo: {r['title']})\n"
                 
-        enriched_prompt = f"{question}\n{context}"
+        # Se la domanda sembra quantitativa o di sintesi, includi i dati statistici deterministici nel contesto
+        stats_context = ""
+        question_lower = question.lower()
+        if any(w in question_lower for w in ["statist", "riunion", "incontr", "progett", "client", "task", "document", "anno", "classific", "quant", "numer", "totale"]):
+            try:
+                stats_context = "\n\n--- Dati Statistici Aggregati Del Secondo Cervello ---\n" + get_second_brain_statistics() + "\n"
+            except Exception as stats_err:
+                print(f"[Query Fallback] Errore nel calcolo delle statistiche per il contesto: {stats_err}")
+                
+        enriched_prompt = f"{question}\n{stats_context}\n{context}"
+
         
         # Modifica le system instructions per informare il modello di fallback
         fallback_instructions = f"""
