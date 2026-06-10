@@ -39,6 +39,7 @@ def send_email(subject: str, body_text: str) -> bool:
                 server.starttls()
                 server.ehlo()
             
+        server.set_debuglevel(1)
         server.login(smtp_username, smtp_password)
         server.sendmail(smtp_from, [smtp_to], msg.as_string())
         server.quit()
