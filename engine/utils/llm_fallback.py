@@ -61,6 +61,9 @@ async def call_openai_compatible_api(url: str, api_key: str, model: str, system_
     """
     Effettua una chiamata HTTP asincrona (tramite thread pool) a un endpoint compatibile con OpenAI.
     """
+    if system_instructions and not isinstance(system_instructions, str):
+        system_instructions = getattr(system_instructions, "identity", getattr(system_instructions, "text", str(system_instructions)))
+        
     payload = {
         "model": model,
         "messages": [
@@ -118,6 +121,9 @@ async def call_native_gemini_api(model: str, api_key: str, system_instructions: 
     Invia una richiesta HTTP POST diretta alle API REST di Google Gemini (senza passare per l'SDK).
     Questo evita conflitti di autorizzazioni degli strumenti (tool declarations) e fornisce codici 429 immediati.
     """
+    if system_instructions and not isinstance(system_instructions, str):
+        system_instructions = getattr(system_instructions, "identity", getattr(system_instructions, "text", str(system_instructions)))
+        
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     payload = {
         "contents": [

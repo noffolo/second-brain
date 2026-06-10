@@ -28,16 +28,22 @@ def get_recent_files(directory_path: str, max_files: int = 5, max_days: int = 7)
     """
     Returns a list of tuples (filename, content) of recent markdown files.
     Filters by modification time within max_days, falling back to the max_files most recent if empty.
+    Scans recursively through subdirectories.
     """
     if not os.path.exists(directory_path):
         return []
         
     md_files = []
-    for f in os.listdir(directory_path):
-        if f.endswith(".md") and not f.startswith("."):
-            full_path = os.path.join(directory_path, f)
-            mtime = os.path.getmtime(full_path)
-            md_files.append((f, full_path, mtime))
+    for root, _, files in os.walk(directory_path):
+        for f in files:
+            if f.endswith(".md") and not f.startswith("."):
+                full_path = os.path.join(root, f)
+                rel_path = os.path.relpath(full_path, directory_path)
+                try:
+                    mtime = os.path.getmtime(full_path)
+                    md_files.append((rel_path, full_path, mtime))
+                except Exception:
+                    pass
             
     if not md_files:
         return []
@@ -49,21 +55,21 @@ def get_recent_files(directory_path: str, max_files: int = 5, max_days: int = 7)
     recent = []
     
     # Filter by age
-    for name, path, mtime in md_files:
+    for rel_path, path, mtime in md_files:
         age_days = (now - mtime) / (24 * 3600)
         if age_days <= max_days:
             try:
                 with open(path, "r", encoding="utf-8") as file_f:
-                    recent.append((name, file_f.read()))
+                    recent.append((rel_path, file_f.read()))
             except Exception:
                 pass
                 
     # Fallback to last N files if nothing in the last week
     if not recent:
-        for name, path, mtime in md_files[:max_files]:
+        for rel_path, path, mtime in md_files[:max_files]:
             try:
                 with open(path, "r", encoding="utf-8") as file_f:
-                    recent.append((name, file_f.read()))
+                    recent.append((rel_path, file_f.read()))
             except Exception:
                 pass
                 

@@ -6,10 +6,10 @@
     <title>Secondo Cervello - Graph & Chat</title>
     
     <!-- Force Graph libs (Useremo solo 3D-force-graph per sfruttare WebGL sia in 2D che in 3D) -->
-    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
+    <script src="/static/js/3d-force-graph.min.js"></script>
     
     <!-- Markdown to HTML basic parser -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@12/lib/marked.umd.min.js"></script>
+    <script src="/static/js/marked.min.js"></script>
 
     <!-- Modern Web Fonts: Caricamento locale di ABC Repro -->
     <style>
@@ -198,6 +198,33 @@
             padding: 0;
             color: var(--text-primary);
             font-size: 0.9em;
+        }
+
+        /* Lists & Links microtypography for bot messages and modals */
+        .message.bot ul, .message.bot ol, #modal-body ul, #modal-body ol {
+            margin-top: 10px;
+            margin-bottom: 16px;
+            padding-left: 24px;
+        }
+        .message.bot li, #modal-body li {
+            margin-bottom: 8px;
+            line-height: 1.65;
+        }
+        .message.bot ul, #modal-body ul {
+            list-style-type: disc;
+        }
+        .message.bot ol, #modal-body ol {
+            list-style-type: decimal;
+        }
+        .message.bot a, #modal-body a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+            border-bottom: 1px dashed rgba(0, 245, 212, 0.4);
+            transition: all 0.2s;
+        }
+        .message.bot a:hover, #modal-body a:hover {
+            color: #fff;
+            border-bottom: 1px solid #fff;
         }
 
         /* Custom Scrollbars for Pre blocks */
@@ -607,10 +634,18 @@
                         // Neuroni in azione (particelle di energia)
                         .linkDirectionalParticles(link => {
                             const type = getLinkType(link);
+                            if (isGraphThinking) {
+                                // Fase di ragionamento: mostriamo attività su tutta la rete, intensificata su nodi attivi
+                                const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+                                const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+                                const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId) || window.secondaryActiveNodes.has(srcId) || window.secondaryActiveNodes.has(tgtId);
+                                if (isConnected) return 6;
+                                return 1; // attività elettrica di fondo diffusa
+                            }
                             if (type === 'default') return 0;
-                            if (type === 'strong') return isGraphThinking ? 10 : 5;
-                            if (type === 'medium') return isGraphThinking ? 6 : 3;
-                            if (type === 'weak') return isGraphThinking ? 3 : 1;
+                            if (type === 'strong') return 5;
+                            if (type === 'medium') return 3;
+                            if (type === 'weak') return 1;
                             return 0;
                         })
                         .linkDirectionalParticleSpeed(link => {
@@ -631,8 +666,8 @@
                             if (type === 'medium') return '#00b4d8'; // Blue-ciano mix
                             return '#c77dff'; // Bright neon purple
                         })
-                        .cooldownTicks(150)
-                        .d3VelocityDecay(0.3)
+                        .cooldownTime(15000)
+                        .d3VelocityDecay(0.15)
                         .onNodeHover(node => {
                             hoverNode = node || null;
                             document.body.style.cursor = node ? 'pointer' : null;
@@ -805,8 +840,8 @@
                     });
                     
                     // Calcola distanza ottimale (zoom più ravvicinato, extra-vicino in fase di ragionamento)
-                    const distanceMultiplier = isThinking ? 1.1 : 1.8;
-                    const minDistance = isThinking ? (is3D ? 45 : 65) : (is3D ? 80 : 120);
+                    const distanceMultiplier = isThinking ? 0.6 : 1.8;
+                    const minDistance = isThinking ? (is3D ? 25 : 40) : (is3D ? 80 : 120);
                     const distance = Math.max(maxDist * distanceMultiplier, minDistance);
                     
                     // In 2D manteniamo l'asse Z a piombo

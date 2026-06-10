@@ -195,6 +195,7 @@ app = FastAPI(title="Secondo Cervello - Dashboard", lifespan=lifespan)
 
 from fastapi.staticfiles import StaticFiles
 app.mount("/fonts", StaticFiles(directory=os.path.join(get_vault_path(), "fonts")), name="fonts")
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")), name="static")
 
 class TimeScheduleRequest(BaseModel):
     time: str  # Format: "HH:MM"
