@@ -1,0 +1,14 @@
+{
+  "groups": [
+    {
+      "id": "",
+      "name": "ff3300",
+      "target_file": "raw/whatsapp/Chat_FF3300.txt"
+    },
+    {
+      "id": "",
+      "name": "ff3300 working room",
+      "target_file": "raw/whatsapp/Chat_FF3300_working_room.txt"
+    }
+  ]
+}

@@ -32,4 +32,5 @@ Microthemes/
 raw/
 scratch/
 archived_noise/
-.meeting_agent_cache/
+# Ignore WhatsApp syncer auth state
+engine/tools/whatsapp_syncer/auth_session/

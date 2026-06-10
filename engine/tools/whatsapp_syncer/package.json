@@ -1,0 +1,16 @@
+{
+  "name": "second-brain-whatsapp-syncer",
+  "version": "1.0.0",
+  "description": "WhatsApp Group Chat Syncer for Second Brain using Baileys",
+  "main": "syncer.js",
+  "type": "module",
+  "scripts": {
+    "start": "node syncer.js",
+    "list-groups": "node syncer.js --list-groups"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.7",
+    "qrcode-terminal": "^0.12.0",
+    "dotenv": "^16.4.5"
+  }
+}

@@ -523,6 +523,14 @@ Restituisci solo ed esclusivamente il blocco JSON.
 
 async def run_ingest(dry_run: bool = False, source_filter: str = None):
     vault_path = get_vault_path()
+    
+    # Esegue il chunking dei file WhatsApp prima di listare i non elaborati
+    try:
+        from engine.tools.whatsapp_chunker import chunk_whatsapp_files
+        chunk_whatsapp_files()
+    except Exception as e:
+        print(f"Avviso: errore durante il chunking di WhatsApp: {e}")
+        
     unprocessed = list_unprocessed_raw()
     
     if source_filter:

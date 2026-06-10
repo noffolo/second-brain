@@ -300,6 +300,10 @@ def list_unprocessed_raw() -> list[str]:
                 continue
             abs_path = os.path.join(root, file)
             rel_path = os.path.relpath(abs_path, vault)
+            rel_path_norm = rel_path.replace("\\", "/")
+            # Salta i file WhatsApp originali (es. Chat_FF3300.txt) per elaborare solo i chunk mensili
+            if rel_path_norm.startswith("raw/whatsapp/") and not rel_path_norm.startswith("raw/whatsapp/chunks/"):
+                continue
             if needs_processing(rel_path, abs_path):
                 unprocessed.append(rel_path)
                 
