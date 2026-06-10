@@ -58,6 +58,32 @@ WantedBy=default.target
     print(f"Generazione file di servizio systemd utente (Telegram): {service_file_tg}...")
     with open(service_file_tg, "w", encoding="utf-8") as f:
         f.write(content_tg)
+
+    # 3. Servizio WhatsApp Syncer
+    label_wa = "secondbrain-whatsapp"
+    service_file_wa = os.path.join(SYSTEMD_USER_DIR, f"{label_wa}.service")
+    import shutil
+    node_path = shutil.which("node") or "/usr/bin/node"
+    
+    content_wa = f"""[Unit]
+Description=Secondo Cervello WhatsApp Syncer Daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory={os.path.join(VAULT_PATH, "engine", "tools", "whatsapp_syncer")}
+ExecStart={node_path} syncer.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+"""
+    print(f"Generazione file di servizio systemd utente (WhatsApp): {service_file_wa}...")
+    with open(service_file_wa, "w", encoding="utf-8") as f:
+        f.write(content_wa)
         
     print("Ricaricamento dei demoni systemd utente...")
     subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
@@ -67,20 +93,20 @@ WantedBy=default.target
     subprocess.run(["systemctl", "--user", "start", f"{label_main}.service"], capture_output=True)
     
     print(f"Abilitazione e avvio del servizio {label_tg}...")
-    res_enable_tg = subprocess.run(["systemctl", "--user", "enable", f"{label_tg}.service"], capture_output=True)
-    res_start_tg = subprocess.run(["systemctl", "--user", "start", f"{label_tg}.service"], capture_output=True, text=True)
+    subprocess.run(["systemctl", "--user", "enable", f"{label_tg}.service"], capture_output=True)
+    subprocess.run(["systemctl", "--user", "start", f"{label_tg}.service"], capture_output=True)
+
+    print(f"Abilitazione del servizio {label_wa}...")
+    res_enable_wa = subprocess.run(["systemctl", "--user", "enable", f"{label_wa}.service"], capture_output=True)
     
-    if res_start_tg.returncode == 0:
-        print(f"\n-> Servizi {label_main} e {label_tg} installati ed avviati in background con successo!")
-        print("NOTA: Per assicurare che i servizi continuino a girare sul server anche dopo la disconnessione SSH,")
-        print("esegui il seguente comando una sola volta sul tuo server:")
-        print(f"    loginctl enable-linger {os.getlogin() if hasattr(os, 'getlogin') else 'tuo_utente'}")
-    else:
-        print(f"Errore durante l'avvio del servizio Telegram: {res_start_tg.stderr.strip()}")
+    print(f"\n-> Servizi {label_main}, {label_tg} e {label_wa} configurati con successo!")
+    print("NOTA: Per assicurare che i servizi continuino a girare sul server anche dopo la disconnessione SSH,")
+    print("esegui il seguente comando una sola volta sul tuo server:")
+    print(f"    loginctl enable-linger {os.getlogin() if hasattr(os, 'getlogin') else 'tuo_utente'}")
 
 def uninstall():
     """Arresta e rimuove i servizi utente systemd su Linux."""
-    labels = ["secondbrain", "secondbrain-telegram"]
+    labels = ["secondbrain", "secondbrain-telegram", "secondbrain-whatsapp"]
     
     for label in labels:
         print(f"Arresto del servizio {label}...")
