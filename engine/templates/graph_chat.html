@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secondo Cervello - Graph & Chat</title>
+    
+    <!-- Force Graph libs (Useremo solo 3D-force-graph per sfruttare WebGL sia in 2D che in 3D) -->
+    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
+    
+    <!-- Markdown to HTML basic parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12/lib/marked.umd.min.js"></script>
+
     <!-- Modern Web Fonts: Caricamento locale di ABC Repro -->
     <style>
         @font-face {
@@ -695,51 +702,41 @@
                 highlightNodes(relevantNodes, true);
             }
 
-            // Effetto "cervello che ragiona" concentrato sul baricentro dei nodi di interesse
-            let thinkingInterval = null;
-            if (Graph && typeof Graph.cameraPosition === 'function') {
+            // Attiva auto-rotazione nativa e fluida su OrbitControls per la fase "thinking"
+            if (Graph && typeof Graph.controls === 'function') {
                 try {
-                    // Trova il baricentro dei nodi di interesse per ruotarvi attorno
-                    let targetX = 0, targetY = 0, targetZ = 0;
-                    let activeNodes = [];
-                    if (relevantNodes.length > 0) {
-                        activeNodes = graphData.nodes.filter(n => highlightedNodes.has(n.id));
-                    }
-                    
-                    if (activeNodes.length > 0) {
-                        let sumX = 0, sumY = 0, sumZ = 0;
-                        activeNodes.forEach(n => {
-                            sumX += n.x || 0;
-                            sumY += n.y || 0;
-                            sumZ += n.z || 0;
-                        });
-                        targetX = sumX / activeNodes.length;
-                        targetY = sumY / activeNodes.length;
-                        targetZ = sumZ / activeNodes.length;
-                    }
-                    
-                    const cam = Graph.cameraPosition();
-                    const dx = cam.x - targetX;
-                    const dz = cam.z - targetZ;
-                    let orbitAngle = Math.atan2(dx, dz);
-                    const dist = Math.hypot(dx, dz) || 400;
-                    
-                    thinkingInterval = setInterval(() => {
-                        if (Graph && typeof Graph.d3ReheatSimulation === 'function') {
-                            Graph.d3ReheatSimulation(); // Mantiene il grafo mobile
+                    const controls = Graph.controls();
+                    if (controls) {
+                        if (is3D) {
+                            controls.autoRotate = true;
+                            controls.autoRotateSpeed = 8.0; // Rotazione hardware-accelerata a 60 FPS
+
+                            // Imposta il target di rotazione sul baricentro dei nodi di interesse
+                            let targetX = 0, targetY = 0, targetZ = 0;
+                            let activeNodes = [];
+                            if (relevantNodes.length > 0) {
+                                activeNodes = graphData.nodes.filter(n => highlightedNodes.has(n.id));
+                            }
+                            if (activeNodes.length > 0) {
+                                let sumX = 0, sumY = 0, sumZ = 0;
+                                activeNodes.forEach(n => {
+                                    sumX += n.x || 0;
+                                    sumY += n.y || 0;
+                                    sumZ += n.z || 0;
+                                });
+                                targetX = sumX / activeNodes.length;
+                                targetY = sumY / activeNodes.length;
+                                targetZ = sumZ / activeNodes.length;
+                                controls.target.set(targetX, targetY, targetZ);
+                            }
                         }
-                        if (is3D && Graph && typeof Graph.cameraPosition === 'function') {
-                            orbitAngle += 0.025; // Orbita veloce simulando l'elaborazione attiva
-                            const nextX = targetX + dist * Math.sin(orbitAngle);
-                            const nextZ = targetZ + dist * Math.cos(orbitAngle);
-                            Graph.cameraPosition(
-                                { x: nextX, y: cam.y, z: nextZ },
-                                { x: targetX, y: targetY, z: targetZ }
-                            );
+                        // Riscalda leggermente la simulazione fisica una sola volta per assestare l'espansione dei nodi attivi
+                        if (typeof Graph.d3ReheatSimulation === 'function') {
+                            Graph.d3ReheatSimulation();
                         }
-                    }, 40);
+                    }
                 } catch (camErr) {
-                    console.warn("Impossibile far orbitare la camera:", camErr);
+                    console.warn("Impossibile far orbitare la camera nativamente:", camErr);
                 }
             }
 
@@ -777,9 +774,11 @@
                     appendMessage('bot', parsedContent);
                     
                     // Disattiva stato thinking e applica evidenziazione e zoom finale sui nodi citati
-                    if (thinkingInterval) {
-                        clearInterval(thinkingInterval);
-                        thinkingInterval = null;
+                    if (Graph && typeof Graph.controls === 'function') {
+                        const controls = Graph.controls();
+                        if (controls) {
+                            controls.autoRotate = false;
+                        }
                     }
                     if (data.cited_nodes && data.cited_nodes.length > 0) {
                         highlightNodes(data.cited_nodes, false);
@@ -804,7 +803,13 @@
                     chatHistory.pop();
                 }
             } finally {
-                if (thinkingInterval) clearInterval(thinkingInterval);
+                // Disattiva sempre l'auto-rotazione in caso di completamento o errore
+                if (Graph && typeof Graph.controls === 'function') {
+                    const controls = Graph.controls();
+                    if (controls) {
+                        controls.autoRotate = false;
+                    }
+                }
                 chatSubmit.disabled = false;
                 chatInput.focus();
             }
