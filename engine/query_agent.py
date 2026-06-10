@@ -3,7 +3,7 @@ import re
 import time
 import asyncio
 from google.antigravity import Agent, LocalAgentConfig
-from engine.utils.markdown import load_settings
+from engine.utils.markdown import load_settings, parse_markdown
 from engine.tools.vault_tools import get_vault_path, search_wiki, append_to_log
 from engine.git_ops import auto_commit
 
@@ -28,13 +28,17 @@ def read_wiki_page_content(relative_path: str) -> str:
 def get_second_brain_statistics() -> str:
     """
     Ritorna statistiche aggregate del Secondo Cervello, come il numero di riunioni per anno,
+    la classifica dei clienti con cui si sono fatte più riunioni in assoluto,
     il numero totale di progetti (completati e attivi), il numero di clienti, task e documenti.
-    Usa questo strumento per rispondere a domande quantitative, aggregazioni, conteggi o riassuntive sui dati strutturati (es. riunioni per anno, progetti attivi, clienti).
+    Usa questo strumento per rispondere a domande quantitative, aggregazioni, conteggi, classifiche o riassuntive sui dati strutturati (es. riunioni per anno, classifica clienti per riunioni, progetti attivi, clienti).
     """
     vault = get_vault_path()
     
-    # 1. Riunioni per anno
+    # 1. Riunioni per anno e classifica dei clienti
     meetings_by_year = {}
+    meetings_by_client = {}
+    seen_notion_ids = set()
+    
     riunioni_dir = os.path.join(vault, "wiki", "sources", "Riunioni")
     fallback_dir = os.path.join(vault, "raw", "calendar")
     
@@ -49,17 +53,60 @@ def get_second_brain_statistics() -> str:
             for f in files:
                 if f.endswith(".md") and not f.startswith("."):
                     try:
-                        with open(os.path.join(root, f), "r", encoding="utf-8") as file_f:
-                            content = file_f.read(800)
-                        match_start = re.search(r"start_time:\s*['\"]?(\d{4})", content)
-                        match_quando = re.search(r"Quando\?:\s*['\"]?(\d{4})", content)
+                        filepath = os.path.join(root, f)
+                        with open(filepath, "r", encoding="utf-8") as file_f:
+                            content = file_f.read()
+                            
+                        fm, _ = parse_markdown(content)
+                        if not fm:
+                            continue
+                            
+                        # Evita il doppio conteggio tracciando notion_page_id
+                        n_id = fm.get("notion_page_id")
+                        if n_id:
+                            if n_id in seen_notion_ids:
+                                continue
+                            seen_notion_ids.add(n_id)
+                            
+                        # Estrazione dell'anno
                         year = None
-                        if match_start:
-                            year = match_start.group(1)
-                        elif match_quando:
-                            year = match_quando.group(1)
+                        quando = fm.get("quando")
+                        if quando:
+                            quando_str = str(quando).strip()
+                            if len(quando_str) >= 4 and quando_str[:4].isdigit():
+                                year = quando_str[:4]
+                                
+                        if not year:
+                            start_time = fm.get("start_time")
+                            if start_time:
+                                start_time_str = str(start_time).strip()
+                                if len(start_time_str) >= 4 and start_time_str[:4].isdigit():
+                                    year = start_time_str[:4]
+                                    
+                        if not year:
+                            match_quando = re.search(r"Quando\?:\s*['\"]?(\d{4})", content)
+                            if match_quando:
+                                year = match_quando.group(1)
+                                
                         if year:
                             meetings_by_year[year] = meetings_by_year.get(year, 0) + 1
+                            
+                        # Estrazione del cliente
+                        cliente_data = fm.get("cliente") or fm.get("clienti")
+                        if cliente_data:
+                            if isinstance(cliente_data, str):
+                                clients = [cliente_data]
+                            elif isinstance(cliente_data, list):
+                                clients = cliente_data
+                            else:
+                                clients = []
+                                
+                            for c in clients:
+                                if isinstance(c, str):
+                                    # Pulisci markup wikilink
+                                    clean_c = c.replace("[[", "").replace("]]", "").strip()
+                                    if clean_c:
+                                        meetings_by_client[clean_c] = meetings_by_client.get(clean_c, 0) + 1
                     except Exception:
                         pass
                         
@@ -131,6 +178,13 @@ def get_second_brain_statistics() -> str:
     else:
         out.append("\n📅 Nessuna riunione trovata.")
         
+    if meetings_by_client:
+        out.append("\n🏆 CLASSIFICA CLIENTI CON PIÙ RIUNIONI:")
+        # Ordina per numero decrescente, poi per nome crescente
+        sorted_clients = sorted(meetings_by_client.items(), key=lambda x: (-x[1], x[0]))
+        for rank, (client, count) in enumerate(sorted_clients, 1):
+            out.append(f"{rank}. [[{client}]]: {count} riunioni")
+        
     out.append(f"\n✨ PROGETTI (Totale: {total_projects}):")
     out.append(f"- Attivi: {active_projects}")
     out.append(f"- Completati: {completed_projects}")
@@ -143,6 +197,7 @@ def get_second_brain_statistics() -> str:
         out.append(f"- {st}: {count}")
         
     return "\n".join(out)
+
 
 def get_detailed_list(type_name: str) -> str:
     """
