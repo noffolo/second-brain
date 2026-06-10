@@ -94,6 +94,9 @@ async def generate_briefing_text(event_fm: dict, event_body: str, context_notes:
     Parla in prima persona come assistente dell'utente. Usa un tono acuto, limpido, sintetico ma profondo (in italiano).
     Garantisci che il testo sia formattato in Markdown pulito, senza racchiuderlo in blocchi di codice markdown (come ``` o ```markdown).
     Evita la capitalizzazione in stile inglese (es. usa le maiuscole solo dove richiesto dalla grammatica italiana).
+    
+    REGOLA DI FERRO CONTRO LE ALLUCINAZIONI (CRITICAL):
+    Non devi MAI inventare o ipotizzare dettagli, fatti, date, persone o relazioni. Devi attenerti RIGOROSAMENTE ed ESCLUSIVAMENTE a ciò che sai o che sei CERTO di aver capito dal contesto fornito. È infinitamente meglio scrivere "non ci sono ulteriori informazioni" piuttosto che fare supposizioni o inventare anche un solo dettaglio. Se non hai prove certe e documentate nei file forniti, dichiara esplicitamente la mancanza di informazioni.
     """
     
     prompt = f"""
@@ -114,6 +117,8 @@ async def generate_briefing_text(event_fm: dict, event_body: str, context_notes:
     ## 1. CONTESTO GENERALE & CHI COINVOLGE: chi sono le persone rilevanti e la loro storia (dal CRM/note).
     ## 2. TEMI CHIAVE & CRONOLOGIA: ultime discussioni emerse dai verbali dei meeting o dal diario.
     ## 3. PUNTI APERTI & COSA CHIEDERE: suggerimenti strategici su cosa affrontare o chiarire.
+    
+    REGOLA DI FERRO: Se non ci sono informazioni contestuali o dettagli certi su uno dei punti sopra, non inventare NULLA. Scrivi semplicemente "non ci sono ulteriori informazioni" per quella sezione o per quel punto specifico.
     
     IMPORTANTE: Scrivi direttamente il testo dell'email in formato Markdown standard (es. intestazioni con ##, grassetti con **, liste con -).
     NON includere delimitatori di blocco codice come ``` o ```markdown all'inizio o alla fine del testo.

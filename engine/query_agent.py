@@ -25,6 +25,165 @@ def read_wiki_page_content(relative_path: str) -> str:
     except Exception as e:
         return f"Errore durante la lettura del file: {e}"
 
+def get_second_brain_statistics() -> str:
+    """
+    Ritorna statistiche aggregate del Secondo Cervello, come il numero di riunioni per anno,
+    il numero totale di progetti (completati e attivi), il numero di clienti, task e documenti.
+    Usa questo strumento per rispondere a domande quantitative, aggregazioni, conteggi o riassuntive sui dati strutturati (es. riunioni per anno, progetti attivi, clienti).
+    """
+    vault = get_vault_path()
+    
+    # 1. Riunioni per anno
+    meetings_by_year = {}
+    riunioni_dir = os.path.join(vault, "wiki", "sources", "Riunioni")
+    fallback_dir = os.path.join(vault, "raw", "calendar")
+    
+    dirs_to_check = []
+    if os.path.exists(riunioni_dir):
+        dirs_to_check.append(riunioni_dir)
+    if os.path.exists(fallback_dir):
+        dirs_to_check.append(fallback_dir)
+        
+    for m_dir in dirs_to_check:
+        for root, _, files in os.walk(m_dir):
+            for f in files:
+                if f.endswith(".md") and not f.startswith("."):
+                    try:
+                        with open(os.path.join(root, f), "r", encoding="utf-8") as file_f:
+                            content = file_f.read(800)
+                        match_start = re.search(r"start_time:\s*['\"]?(\d{4})", content)
+                        match_quando = re.search(r"Quando\?:\s*['\"]?(\d{4})", content)
+                        year = None
+                        if match_start:
+                            year = match_start.group(1)
+                        elif match_quando:
+                            year = match_quando.group(1)
+                        if year:
+                            meetings_by_year[year] = meetings_by_year.get(year, 0) + 1
+                    except Exception:
+                        pass
+                        
+    # 2. Progetti
+    projects_dir = os.path.join(vault, "wiki", "entities", "Progetti")
+    total_projects = 0
+    active_projects = 0
+    completed_projects = 0
+    if os.path.exists(projects_dir):
+        for root, _, files in os.walk(projects_dir):
+            for f in files:
+                if f.endswith(".md") and not f.startswith("."):
+                    total_projects += 1
+                    try:
+                        with open(os.path.join(root, f), "r", encoding="utf-8") as file_f:
+                            content = file_f.read(800)
+                        if "completato?: true" in content.lower():
+                            completed_projects += 1
+                        else:
+                            active_projects += 1
+                    except Exception:
+                        active_projects += 1
+
+    # 3. Clienti
+    clienti_dir = os.path.join(vault, "wiki", "entities", "Clienti")
+    total_clients = 0
+    in_essere_clients = 0
+    if os.path.exists(clienti_dir):
+        for root, _, files in os.walk(clienti_dir):
+            for f in files:
+                if f.endswith(".md") and not f.startswith("."):
+                    total_clients += 1
+                    try:
+                        with open(os.path.join(root, f), "r", encoding="utf-8") as file_f:
+                            content = file_f.read(800)
+                        if "incarico_in_essere?: true" in content.lower():
+                            in_essere_clients += 1
+                    except Exception:
+                        pass
+
+    # 4. Task
+    task_dir = os.path.join(vault, "wiki", "entities", "Task")
+    total_tasks = 0
+    tasks_by_status = {}
+    if os.path.exists(task_dir):
+        for root, _, files in os.walk(task_dir):
+            for f in files:
+                if f.endswith(".md") and not f.startswith("."):
+                    total_tasks += 1
+                    try:
+                        with open(os.path.join(root, f), "r", encoding="utf-8") as file_f:
+                            content = file_f.read(800)
+                        status_match = re.search(r"stato:\s*['\"]?([^'\n\"]+)", content.lower())
+                        if status_match:
+                            status = status_match.group(1).strip()
+                            tasks_by_status[status] = tasks_by_status.get(status, 0) + 1
+                    except Exception:
+                        pass
+
+    out = ["=== STATISTICHE DEL SECONDO CERVELLO ==="]
+    
+    if meetings_by_year:
+        out.append("\n📅 RIUNIONI PER ANNO:")
+        sorted_years = sorted(meetings_by_year.items(), key=lambda x: x[0])
+        for yr, count in sorted_years:
+            out.append(f"- {yr}: {count} riunioni")
+        max_yr, max_count = max(meetings_by_year.items(), key=lambda x: x[1])
+        out.append(f"L'anno con più riunioni è il {max_yr} (con {max_count} riunioni).")
+    else:
+        out.append("\n📅 Nessuna riunione trovata.")
+        
+    out.append(f"\n✨ PROGETTI (Totale: {total_projects}):")
+    out.append(f"- Attivi: {active_projects}")
+    out.append(f"- Completati: {completed_projects}")
+    
+    out.append(f"\n🏢 CLIENTI (Totale: {total_clients}):")
+    out.append(f"- Con incarico attivo: {in_essere_clients}")
+    
+    out.append(f"\n📌 TASK (Totale: {total_tasks}):")
+    for st, count in tasks_by_status.items():
+        out.append(f"- {st}: {count}")
+        
+    return "\n".join(out)
+
+def get_detailed_list(type_name: str) -> str:
+    """
+    Ritorna una lista dettagliata di elementi del tipo specificato (scegliere tra: 'clienti', 'progetti', 'task', 'riunioni').
+    Usa questo strumento quando l'utente chiede esplicitamente l'elenco dei progetti, dei clienti, delle riunioni o delle task.
+    """
+    vault = get_vault_path()
+    type_name = type_name.lower().strip()
+    
+    if "client" in type_name:
+        folder = os.path.join(vault, "wiki", "entities", "Clienti")
+        title = "ELENCO CLIENTI"
+    elif "progett" in type_name:
+        folder = os.path.join(vault, "wiki", "entities", "Progetti")
+        title = "ELENCO PROGETTI"
+    elif "task" in type_name:
+        folder = os.path.join(vault, "wiki", "entities", "Task")
+        title = "ELENCO TASK"
+    elif "riunion" in type_name or "incontro" in type_name:
+        folder = os.path.join(vault, "wiki", "sources", "Riunioni")
+        title = "ELENCO RIUNIONI"
+    else:
+        return f"Tipo '{type_name}' non supportato. Scegli tra: 'clienti', 'progetti', 'task', 'riunioni'."
+        
+    if not os.path.exists(folder):
+        return f"Nessun elemento trovato per '{type_name}' (cartella non esistente)."
+        
+    items = []
+    for root, _, files in os.walk(folder):
+        for f in files:
+            if f.endswith(".md") and not f.startswith("."):
+                items.append(f[:-3])
+                
+    if not items:
+        return f"Nessun elemento trovato in {title}."
+        
+    out = [f"=== {title} ==="]
+    for item in sorted(items):
+        out.append(f"- {item}")
+    return "\n".join(out)
+
 def get_agent_instructions(agent_name: str) -> str:
     vault_path = get_vault_path()
     agents_md = os.path.join(vault_path, "agents.md")
@@ -72,7 +231,7 @@ PROFILO UTENTE (WORKING MEMORY):
     return LocalAgentConfig(
         model=model,
         system_instructions=full_system_instructions,
-        tools=[search_wiki, read_wiki_page_content],
+        tools=[search_wiki, read_wiki_page_content, get_second_brain_statistics, get_detailed_list],
         **kwargs
     )
 

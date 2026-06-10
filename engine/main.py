@@ -10,9 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Load env variables at startup
 load_dotenv()
 
-from engine.tools.notion_tools import notion_sync_to_raw
-from engine.tools.notion_calendar import notion_calendar_sync
-from engine.tools.notion_tasks import notion_tasks_sync
+from engine.tools.notion_db_sync import notion_all_db_sync
 from engine.tools.drive_tools import drive_sync_to_raw
 from engine.tools.mail_tools import apple_mail_sync_to_raw
 from engine.tools.web_tools import web_sync_to_raw
@@ -30,10 +28,7 @@ from engine.ontology_agent import (
 )
 
 def handle_notion_full_sync() -> int:
-    count = notion_sync_to_raw()
-    count += notion_calendar_sync()
-    count += notion_tasks_sync()
-    return count
+    return notion_all_db_sync()
 
 def handle_sync(source: str = None):
     print("Avvio sincronizzazione delle fonti...")
