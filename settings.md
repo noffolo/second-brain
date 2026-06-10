@@ -22,7 +22,7 @@ sources:
     resource_key: ""                  # Chiave risorsa (opzionale, es. dal link se richiesto)
     local_path: "~/Google Drive/Il mio Drive"
   apple_mail:
-    enabled: false                    # Imposta a true per abilitare Apple Mail
+    enabled: true                    # Imposta a true per abilitare Apple Mail
     sync_all_accounts: true           # Imposta a true per sincronizzare tutti gli account configurati
     account_prefix: ""                # Prefisso degli account mail da sincronizzare (es. "SB-", lasciare vuoto per tutti)
     mailbox: "SecondBrain"            # Utilizzato solo se sync_all_accounts è false

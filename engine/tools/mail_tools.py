@@ -195,7 +195,7 @@ def imap_sync_to_raw() -> int:
                    any(subj in subject_lower for subj in exclude_subjects):
                     continue
                     
-                is_relevant = bool(keywords_pattern.search(subject))
+                is_relevant = True
                 
                 if not is_relevant:
                     clean_sender = sender.replace('"', '\\"')
@@ -938,7 +938,7 @@ def apple_mail_sync_to_raw() -> int:
                 
                 is_relevant = False
                 if not is_excluded_sender:
-                    is_relevant = bool(keywords_pattern.search(subject))
+                    is_relevant = True
                 
                  # Pattern per le email di cui scaricare SEMPRE il corpo (es. iscrizioni, registrazioni, paypal)
                 strict_body_pattern = re.compile(
@@ -954,7 +954,7 @@ def apple_mail_sync_to_raw() -> int:
                 )
                 
                 if is_relevant:
-                    is_strict = bool(strict_body_pattern.search(subject))
+                    is_strict = True
                     # Keep index as i + 1 (1-based index in Mail.app mailbox)
                     missing_items.append({
                         "index": i + 1,
