@@ -12,9 +12,9 @@ sources:
   notion:
     enabled: true
     sync_all: true
-    database_ids: []                  # Inserisci qui gli ID dei database Notion da sincronizzare se sync_all è false
-    calendar_database_id: ""          # ID del database eventi/appuntamenti Notion
-    tasks_database_id: ""             # ID del database task Notion
+    database_ids: ["6f4bd393f5394cd9ae70eeb83df9ed79", "8cf4fdfcd0e0471e82b37b323e597965", "d73ddfa6f4524279be2b2956a17aab45", "eaabfc93f45548779832470db0ea60e9", "9a5507065830472a9084673433fe825b", "53eb57f933814e0ab375748b120ce121"]
+    calendar_database_id: "eaabfc93f45548779832470db0ea60e9"          # ID del database eventi/appuntamenti Notion
+    tasks_database_id: "d73ddfa6f4524279be2b2956a17aab45"             # ID del database task Notion
   google_drive:
     enabled: true
     use_api: false
