@@ -37,6 +37,23 @@ def handle_notion_full_sync() -> int:
 
 def handle_sync(source: str = None):
     print("Avvio sincronizzazione delle fonti...")
+    
+    # Tentativo di pull per allinearsi con eventuali modifiche esterne
+    try:
+        import subprocess
+        vault_path = get_vault_path()
+        if os.path.exists(os.path.join(vault_path, ".git")):
+            print("Allineamento repository Git (pull)...")
+            pull_res = subprocess.run(
+                ["git", "pull", "--rebase", "origin", "main"], cwd=vault_path, capture_output=True, text=True
+            )
+            if pull_res.returncode == 0:
+                print("Repository allineato correttamente.")
+            else:
+                print(f"[Git Pull] Nota: impossibile allineare (forse nessun remote o conflitto locale): {pull_res.stderr.strip()}")
+    except Exception as e:
+        print(f"[Git Pull] Errore durante il pull automatico: {e}")
+
     notion_count, drive_count, mail_count, web_count, cal_count = 0, 0, 0, 0, 0
     
     if source == "notion":

@@ -48,6 +48,26 @@ def auto_commit(vault_path: str, message: str) -> bool:
             
         res = subprocess.run(commit_cmd, cwd=vault_path, check=True, capture_output=True, text=True)
         print(f"Commit effettuato: {message}")
+        
+        # Tentativo di push automatico se configurato o se esiste un remote origin
+        try:
+            # Rileva l'attuale branch
+            branch_res = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=vault_path, capture_output=True, text=True, check=True
+            )
+            current_branch = branch_res.stdout.strip()
+            
+            # Esegui il push
+            push_res = subprocess.run(
+                ["git", "push", "origin", current_branch], cwd=vault_path, capture_output=True, text=True
+            )
+            if push_res.returncode == 0:
+                print(f"Push automatico completato con successo su origin/{current_branch}.")
+            else:
+                print(f"[Git Sync] Nota: push automatico non riuscito (remote non raggiungibile o non configurato): {push_res.stderr.strip()}")
+        except Exception as push_err:
+            print(f"[Git Sync] Errore durante il push automatico: {push_err}")
+            
         return True
         
     except Exception as e:
