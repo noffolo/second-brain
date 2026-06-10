@@ -563,9 +563,15 @@
             <h1>Secondo Cervello</h1>
             <p>Pannello di controllo per l'importazione automatica dei dati e il monitoraggio dei servizi</p>
         </div>
-        <div class="system-status">
-            <div class="status-dot"></div>
-            <div class="status-text">Servizi online</div>
+        <div class="system-status" style="display: flex; align-items: center; gap: 20px;">
+            <a href="/graph" style="text-decoration: none; color: var(--accent-cyan); font-weight: 700; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px; border: 1px solid var(--accent-cyan); padding: 8px 18px; border-radius: 20px; transition: all 0.3s; background: rgba(0, 245, 212, 0.05); display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='var(--accent-cyan)'; this.style.color='#0b0d10'" onmouseout="this.style.background='rgba(0, 245, 212, 0.05)'; this.style.color='var(--accent-cyan)'">
+                <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.5;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Apri Chat & Grafo 🕸️
+            </a>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="status-dot"></div>
+                <div class="status-text">Servizi online</div>
+            </div>
         </div>
     </header>
 

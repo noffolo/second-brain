@@ -25,6 +25,105 @@ def read_wiki_page_content(relative_path: str) -> str:
     except Exception as e:
         return f"Errore durante la lettura del file: {e}"
 
+def extract_keywords(query: str) -> list[str]:
+    """Estrae parole chiave significative per la ricerca testuale, escludendo le stopwords."""
+    words = re.findall(r'\w+', query.lower())
+    stopwords = {
+        "il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
+        "e", "o", "ma", "se", "che", "del", "dello", "della", "dei", "degli", "delle", "al", "allo", "alla", "ai", "agli",
+        "alle", "dal", "dallo", "dalla", "dai", "dagli", "dalle", "nel", "nello", "nella", "nei", "negli", "nelle", "sul",
+        "sullo", "sulla", "sui", "sugli", "sulle", "col", "coi", "cosa", "come", "dove", "quando", "perche", "chi", "quale",
+        "quali", "questo", "quello", "mi", "ti", "ci", "vi", "si", "lo", "la", "li", "le", "gli", "ne", "su", "per",
+        "assoluto", "quello", "quelli", "quella", "questo", "questi", "questa", "sono", "stato", "stati", "era", "erano"
+    }
+    keywords = []
+    for w in words:
+        w_clean = w.strip("’'")
+        if len(w_clean) >= 3 and w_clean not in stopwords:
+            stem = w_clean
+            if w_clean[-1] in 'oaiei' and len(w_clean) > 4:
+                stem = w_clean[:-1]
+            if stem not in keywords:
+                keywords.append(stem)
+    return keywords
+
+def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
+    """
+    Esegue una ricerca ibrida unendo i risultati semantici del Vector DB
+    con la ricerca testuale classica (search_wiki) basata su parole chiave.
+    """
+    results = []
+    seen_paths = set()
+    
+    # 1. Ricerca Vettoriale Semantica
+    try:
+        from engine.utils.vector_db import get_vector_db
+        db = get_vector_db()
+        vec_results = db.search_similar(query, limit=limit)
+        for r in vec_results:
+            if r['path'] not in seen_paths:
+                seen_paths.add(r['path'])
+                results.append({
+                    "path": r['path'],
+                    "title": r['title'],
+                    "snippet": r['snippet']
+                })
+    except Exception as e:
+        print(f"[Hybrid Search] Errore ricerca vettoriale: {e}")
+        
+    # 2. Ricerca Testuale Classica per Parole Chiave
+    keywords = extract_keywords(query)
+    try:
+        for kw in keywords[:3]:  # Primi 3 stem più significativi
+            kw_results = search_wiki(kw)
+            for r in kw_results:
+                if r['path'] not in seen_paths:
+                    seen_paths.add(r['path'])
+                    # Leggi una porzione del file per arricchire il snippet
+                    filepath = os.path.join(get_vault_path(), r['path'])
+                    snippet = r.get('snippet', '')
+                    if os.path.exists(filepath):
+                        try:
+                            with open(filepath, "r", encoding="utf-8") as f_read:
+                                body = f_read.read(1200)
+                                if body.strip():
+                                    snippet = body.strip()
+                        except Exception:
+                            pass
+                    results.append({
+                        "path": r['path'],
+                        "title": r['title'],
+                        "snippet": snippet
+                    })
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
+    except Exception as e:
+        print(f"[Hybrid Search] Errore ricerca keyword: {e}")
+        
+    return results[:limit]
+
+def search_vault(query: str) -> str:
+    """
+    Cerca nel vault le note più pertinenti alla query utilizzando un approccio ibrido
+    (ricerca semantica vettoriale combinata con ricerca testuale su parole chiave).
+    Usa questo strumento per trovare concetti, fatti, o memorie passate sia per significato che per parole chiave.
+    Ritorna i frammenti di testo più rilevanti estratti dai documenti.
+    """
+    try:
+        results = hybrid_search_vault_func(query, limit=10)
+        if not results:
+            return "Nessun risultato trovato nel vault."
+        out = []
+        for r in results:
+            out.append(f"--- Nota: {r['path']} (Titolo: {r['title']}) ---\n{r['snippet']}\n")
+        return "\n".join(out)
+    except Exception as e:
+        return f"Errore ricerca ibrida: {e}"
+
+_stats_cache = {"time": 0, "data": ""}
+
 def get_second_brain_statistics() -> str:
     """
     Ritorna statistiche aggregate del Secondo Cervello, come il numero di riunioni per anno,
@@ -32,6 +131,10 @@ def get_second_brain_statistics() -> str:
     il numero totale di progetti (completati e attivi), il numero di clienti, task e documenti.
     Usa questo strumento per rispondere a domande quantitative, aggregazioni, conteggi, classifiche o riassuntive sui dati strutturati (es. riunioni per anno, classifica clienti per riunioni, progetti attivi, clienti).
     """
+    global _stats_cache
+    if time.time() - _stats_cache["time"] < 300:  # 5 minutes TTL
+        return _stats_cache["data"]
+
     vault = get_vault_path()
     
     # 1. Riunioni per anno e classifica dei clienti
@@ -315,7 +418,10 @@ def get_second_brain_statistics() -> str:
     for st, count in tasks_by_status.items():
         out.append(f"- {st}: {count}")
         
-    return "\n".join(out)
+    result = "\n".join(out)
+    _stats_cache["time"] = time.time()
+    _stats_cache["data"] = result
+    return result
 
 
 def get_detailed_list(type_name: str) -> str:
@@ -401,15 +507,34 @@ PROFILO UTENTE (WORKING MEMORY):
             kwargs["project"] = auth["project_id"]
         if auth.get("location"):
             kwargs["location"] = auth["location"]
+    from google.antigravity.types import TemplatedSystemInstructions
+    templated_si = TemplatedSystemInstructions(
+        identity=f"""Sei il "Secondo Cervello" (Second Brain) dell'utente. 
+Devi rispondere SEMPRE ED ESCLUSIVAMENTE in lingua ITALIANA.
+Non utilizzare MAI l'inglese per rispondere.
+Non elencare o esplorare cartelle del filesystem a meno che non ti venga richiesto esplicitamente.
+Le tue istruzioni base sono:
+{full_system_instructions}"""
+    )
 
     return LocalAgentConfig(
         model=model,
-        system_instructions=full_system_instructions,
-        tools=[search_wiki, read_wiki_page_content, get_second_brain_statistics, get_detailed_list],
+        system_instructions=templated_si,
+        tools=[search_vault, read_wiki_page_content, get_second_brain_statistics, get_detailed_list],
         **kwargs
     )
 
-async def query_agent_with_fallback(question: str, config: LocalAgentConfig) -> str:
+async def query_agent_with_fallback(question: str, config: LocalAgentConfig, history: list = None) -> str:
+    history_context = ""
+    if history:
+        history_context = "Cronologia Conversazione (Ultimi messaggi):\n"
+        for msg in history:
+            role = "Utente" if msg["role"] == "user" else "Assistente"
+            history_context += f"{role}: {msg['content']}\n"
+        history_context += "\n---\nLa nuova richiesta dell'utente è la seguente:\n"
+        
+    full_question = history_context + question
+
     # 1. Prova ad usare l'Agent nativo di Gemini (con tool search_wiki/read_wiki_page_content)
     try:
         gemini_key = os.getenv("GEMINI_API_KEY", "")
@@ -417,68 +542,46 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig) -> 
             raise ValueError("GEMINI_API_KEY non impostata o impostata come dummy-key")
             
         async with Agent(config) as agent:
-            response = await agent.chat(question)
-            return await response.text()
+            response = await agent.chat(full_question)
+            resp_text = await response.text()
+            if not resp_text or not resp_text.strip():
+                raise RuntimeError("Empty response from Agent (likely 429 quota swallowed by SDK)")
+            return resp_text
     except Exception as e:
         print(f"[Query Fallback] Gemini API fallita o non disponibile ({e}). Tento RAG locale con LLM di fallback...")
         
-        # 2. RAG locale: cerca nel vault ed estrae il contesto
-        search_results = search_wiki(question)
-        if not search_results:
-            # Fallback a ricerca per parole chiave con stemming italiano rudimentale
-            words = re.sub(r'[^\w\s\’\']', ' ', question.lower()).split()
-            stopwords = {
-                "l'anno", "anno", "anni", "abbiamo", "fatto", "facciamo", "fare", "più", "classifica", "clienti", "cliente",
-                "in", "con", "cui", "e", "il", "la", "i", "gli", "le", "di", "da", "per", "su", "a", "del", "dei", "degli",
-                "assoluto", "assoluto", "quello", "quelli", "quella", "questo", "questi", "questa", "sono", "stato", "stati", "era", "erano"
-            }
-            keywords = []
-            for w in words:
-                w_clean = w.strip("’'")
-                if len(w_clean) >= 4 and w_clean not in stopwords:
-                    stem = w_clean
-                    if w_clean[-1] in 'oaiei' and len(w_clean) > 4:
-                        stem = w_clean[:-1]
-                    if stem not in keywords:
-                        keywords.append(stem)
+        # 2. RAG locale: cerca nel vault ed estrae il contesto tramite ricerca ibrida
+        search_results = []
+        try:
+            search_results = await asyncio.to_thread(hybrid_search_vault_func, question, 15)
+        except Exception as e:
+            print(f"Errore query ricerca ibrida: {e}")
             
-            seen_paths = set()
-            search_results = []
-            for kw in keywords[:3]:  # primi 3 stem più significativi
-                kw_results = search_wiki(kw)
-                for r in kw_results:
-                    if r['path'] not in seen_paths:
-                        seen_paths.add(r['path'])
-                        search_results.append(r)
-        
         context = ""
         if search_results:
             context = "\n\nRisultati della ricerca nel vault:\n"
-            context += "--- CONTENUTI DELLE NOTE PIÙ RILEVANTI ---\n"
-            for r in search_results[:10]: # primi 10 file completi
-                page_content = read_wiki_page_content(r['path'])
-                context += f"\n--- Nota: {r['path']} ---\n{page_content}\n"
-                
-            if len(search_results) > 10:
-                context += "\n--- ALTRE NOTE RILEVANTI TROVATE NEL VAULT (SOLO PERCORSI) ---\n"
-                for r in search_results[10:30]: # altri 20 percorsi per dare visibilità globale
-                    context += f"- {r['path']} (Titolo: {r['title']})\n"
+            context += "--- FRAMMENTI PIÙ RILEVANTI ---\n"
+            for r in search_results:
+                context += f"\n--- Nota: {r['path']} ({r['title']}) ---\n{r['snippet']}\n"
                 
         # Se la domanda sembra quantitativa o di sintesi, includi i dati statistici deterministici nel contesto
         stats_context = ""
         question_lower = question.lower()
         if any(w in question_lower for w in ["statist", "riunion", "incontr", "progett", "client", "task", "document", "anno", "classific", "quant", "numer", "totale"]):
             try:
-                stats_context = "\n\n--- Dati Statistici Aggregati Del Secondo Cervello ---\n" + get_second_brain_statistics() + "\n"
+                stats_str = await asyncio.to_thread(get_second_brain_statistics)
+                stats_context = "\n\n--- Dati Statistici Aggregati Del Secondo Cervello ---\n" + stats_str + "\n"
             except Exception as stats_err:
                 print(f"[Query Fallback] Errore nel calcolo delle statistiche per il contesto: {stats_err}")
                 
-        enriched_prompt = f"{question}\n{stats_context}\n{context}"
+        enriched_prompt = f"{full_question}\n{stats_context}\n{context}"
 
+        sys_inst = config.system_instructions
+        sys_inst_text = getattr(sys_inst, "identity", getattr(sys_inst, "text", str(sys_inst)))
         
         # Modifica le system instructions per informare il modello di fallback
         fallback_instructions = f"""
-{config.system_instructions}
+{sys_inst_text}
 
 ---
 [MODALITÀ FALLBACK - NO STRUMENTI]
@@ -583,9 +686,9 @@ async def run_single_query(question: str):
     answer = await query_agent_with_fallback(question, config)
     print(f"Agent: {answer}")
 
-async def query_agent_answer(question: str) -> str:
+async def query_agent_answer(question: str, history: list = None) -> str:
     config = await get_query_agent_config()
-    return await query_agent_with_fallback(question, config)
+    return await query_agent_with_fallback(question, config, history=history)
 
 if __name__ == "__main__":
     # Interactive default

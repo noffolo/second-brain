@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secondo Cervello - Graph & Chat</title>
+    <!-- Modern Web Fonts: Caricamento locale di ABC Repro -->
+    <style>
+        @font-face {
+            font-family: 'ABC Repro';
+            src: url('/fonts/ABCRepro-Medium.woff') format('woff');
+            font-weight: 500;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        @font-face {
+            font-family: 'ABC Repro';
+            src: url('/fonts/ABCRepro-Black.woff') format('woff');
+            font-weight: 900;
+            font-style: normal;
+            font-display: swap;
+        }
+
+        :root {
+            --bg-color: #0b0d10;
+            --panel-bg: rgba(20, 24, 33, 0.65);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --accent-purple: #9d4edd;
+            --accent-cyan: #00f5d4;
+            --text-primary: #f8f9fa;
+            --text-secondary: #adb5bd;
+            --text-muted: #6c757d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'ABC Repro', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-weight: 500;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+            
+            /* Attivazione legature e glifi combinati di ABC Repro */
+            font-variant-ligatures: common-ligatures discretionary-ligatures historical-ligatures contextual;
+            font-feature-settings: "liga" on, "dlig" on, "calt" on, "clig" on;
+        }
+
+        /* Classe utility per cerchiature di parole singole o composte (collegate con _) */
+        .circled-text {
+            font-feature-settings: "ss03" 1, "ss04" 1, "calt" 1, "dlig" 1;
+        }
+
+        body, input, textarea, button, select, option {
+            font-family: 'ABC Repro', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-weight: 500;
+        }
+
+        h1, h2, h3, h4, h5, h6, strong, b, .chat-submit, .toggle-btn, #modal-title {
+            font-family: 'ABC Repro', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-weight: 900;
+            letter-spacing: -0.015em;
+        }
+
+        /* Graph Panel */
+        #graph-panel {
+            flex: 1;
+            height: 100vh;
+            position: relative;
+            border-right: 1px solid var(--panel-border);
+            background: #000;
+            overflow: hidden; /* Prevent canvas from overflowing */
+        }
+
+        #graph-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        .toggle-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(20, 24, 33, 0.8);
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 900;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+        }
+
+        .toggle-btn:hover {
+            background: var(--accent-cyan);
+            color: #000;
+        }
+
+        /* Chat Panel */
+        #chat-panel {
+            flex: 1;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: radial-gradient(circle at top right, rgba(157, 78, 221, 0.1), transparent 400px),
+                        var(--bg-color);
+            z-index: 2; /* Ensures chat is above any rogue canvas */
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            padding: 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 20px 24px;
+            border-radius: 16px;
+            line-height: 1.65;
+            font-size: 1.5rem; /* INGRANDITO: testo del chatbot più leggibile */
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, var(--accent-purple), #6c5ce7);
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            color: var(--text-primary);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.bot p {
+            margin-bottom: 15px;
+        }
+        .message.bot p:last-child {
+            margin-bottom: 0;
+        }
+        .message.bot code {
+            background: rgba(0,0,0,0.5);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        .message.bot pre {
+            background: rgba(0,0,0,0.5);
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 12px;
+        }
+
+        /* Punti elenco come frecce (Chatbot & Wiki Modal) */
+        .message.bot ul, #modal-body ul {
+            list-style-type: none;
+            padding-left: 0;
+            margin-left: 0;
+            margin-bottom: 15px;
+        }
+
+        .message.bot ul li, #modal-body ul li {
+            position: relative;
+            padding-left: 24px;
+            margin-bottom: 8px;
+            line-height: 1.65;
+        }
+
+        .message.bot ul li::before, #modal-body ul li::before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: var(--accent-cyan);
+            font-weight: 900;
+        }
+
+        .chat-input-container {
+            padding: 20px 30px;
+            border-top: 1px solid var(--panel-border);
+            background: rgba(11, 13, 16, 0.9);
+        }
+
+        .chat-form {
+            display: flex;
+            gap: 15px;
+        }
+
+        .chat-input {
+            flex-grow: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 18px 24px;
+            border-radius: 12px;
+            font-size: 1.4rem; /* INGRANDITO: input più leggibile */
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .chat-input:focus {
+            border-color: var(--accent-purple);
+        }
+
+        .chat-submit {
+            background: var(--accent-cyan);
+            color: #000;
+            border: none;
+            padding: 0 30px;
+            border-radius: 12px;
+            font-weight: 900;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .chat-submit:hover {
+            background: #fff;
+            transform: translateY(-2px);
+        }
+
+        .chat-submit:disabled {
+            background: #555;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading-dots::after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { color: rgba(0,0,0,0); text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); }
+            40% { color: white; text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); }
+            60% { text-shadow: .25em 0 0 white, .5em 0 0 rgba(0,0,0,0); }
+            80%, 100% { text-shadow: .25em 0 0 white, .5em 0 0 white; }
+        }
+
+        /* WikiLink styling inside chat bubbles */
+        .wiki-link {
+            color: var(--accent-cyan);
+            text-decoration: none;
+            border-bottom: 1px dashed var(--accent-cyan);
+            font-weight: 900;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .wiki-link:hover {
+            color: #fff;
+            border-bottom-style: solid;
+            text-shadow: 0 0 8px rgba(0, 245, 212, 0.6);
+        }
+
+        /* Modal overlay styling */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(11, 13, 16, 0.85); /* Dark background matching the theme */
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: rgba(20, 24, 33, 0.95);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 12px;
+            width: 80vw;
+            max-width: 800px;
+            height: 80vh;
+            max-height: 600px;
+            padding: 30px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+            color: var(--text-primary);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 2rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: color 0.2s;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--accent-purple);
+        }
+
+        #modal-title {
+            margin-top: 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+            color: var(--accent-cyan);
+            font-weight: 900;
+            font-size: 1.8rem;
+        }
+
+        #modal-body {
+            flex: 1;
+            overflow-y: auto;
+            line-height: 1.65;
+            font-size: 1.15rem; /* Ingrandito per leggibilità */
+            padding-right: 10px;
+        }
+        
+        #modal-body p {
+            margin-bottom: 15px;
+        }
+        #modal-body h1, #modal-body h2, #modal-body h3 {
+            margin-top: 20px;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+        #modal-body ol {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+        #modal-body li {
+            margin-bottom: 8px;
+        }
+
+        /* Scrollbar in modal body */
+        #modal-body::-webkit-scrollbar {
+            width: 6px;
+        }
+        #modal-body::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        #modal-body::-webkit-scrollbar-thumb {
+            background: var(--accent-purple);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="graph-panel">
+        <button class="toggle-btn" id="mode-toggle">Switch to 2D</button>
+        <div id="graph-container"></div>
+    </div>
+
+    <div id="chat-panel">
+        <div class="chat-messages" id="chat-messages">
+            <div class="message bot">
+                Ciao! Sono il tuo assistente. Il mio grafo delle conoscenze è caricato qui a fianco. Chiedimi qualcosa!
+            </div>
+        </div>
+        <div class="chat-input-container">
+            <form class="chat-form" id="chat-form">
+                <input type="text" id="chat-input" class="chat-input" placeholder="Cerca nel tuo secondo cervello..." autocomplete="off" required>
+                <button type="submit" id="chat-submit" class="chat-submit">Invia</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal overlay for Wiki Pages -->
+    <div id="wiki-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <span class="modal-close" id="modal-close">&times;</span>
+            <h2 id="modal-title">Caricamento...</h2>
+            <div id="modal-body">Sto leggendo la pagina...</div>
+        </div>
+    </div>
+
+    <script>
+        let graphData = { nodes: [], links: [] };
+        let is3D = true; // Impostiamo 3D come default
+        let Graph = null;
+        let highlightedNodes = new Set();
+        let hoverNode = null;
+        let isGraphThinking = false; // Stato di "ragionamento" preventivo
+
+        const container = document.getElementById('graph-container');
+        const toggleBtn = document.getElementById('mode-toggle');
+
+        // Configurazione Colori
+        const NODE_R = 4;
+        const HIGHLIGHT_COLOR = '#00f5d4'; // Ciano neon
+        const DEFAULT_COLOR = '#9d4edd'; // Viola di default
+
+        // Carica dati del grafo
+        fetch('/api/graph')
+            .then(res => res.json())
+            .then(data => {
+                graphData = data;
+                initGraph();
+            })
+            .catch(err => {
+                console.error("Errore nel caricamento dei dati del grafo:", err);
+            });
+
+        // Risoluzione tipo di link in base all'attivazione dei nodi sorgente/destinazione
+        function getLinkType(link) {
+            const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+            const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+            const srcActive = highlightedNodes.has(srcId);
+            const tgtActive = highlightedNodes.has(tgtId);
+            if (srcActive && tgtActive) return 'strong';
+            if (srcActive || tgtActive) return 'weak';
+            return 'inactive';
+        }
+
+        function initGraph() {
+            try {
+                if (!Graph) {
+                    if (typeof ForceGraph3D === 'undefined') {
+                        console.warn("ForceGraph3D non è caricato. Il grafo non sarà visualizzato.");
+                        showGraphError();
+                        return;
+                    }
+                    Graph = ForceGraph3D()(container)
+                        .width(container.clientWidth)
+                        .height(container.clientHeight)
+                        .graphData(graphData)
+                        .nodeLabel('id')
+                        .nodeColor(node => {
+                            if (highlightedNodes.has(node.id)) return HIGHLIGHT_COLOR;
+                            if (node === hoverNode) return '#fff';
+                            // Oscura i nodi non interessati durante l'evidenziazione
+                            return highlightedNodes.size > 0 ? '#12151c' : DEFAULT_COLOR;
+                        })
+                        .nodeVal(node => {
+                            const baseVal = node.val || 1;
+                            if (highlightedNodes.size > 0) {
+                                // I nodi attivi crescono del 3.5x, i non attivi si rimpiccioliscono (0.4x) per massimo contrasto
+                                return highlightedNodes.has(node.id) ? baseVal * 3.5 : baseVal * 0.4;
+                            }
+                            return baseVal;
+                        })
+                        .nodeRelSize(NODE_R)
+                        .linkColor(link => {
+                            if (highlightedNodes.size === 0) return 'rgba(255,255,255,0.08)';
+                            const type = getLinkType(link);
+                            if (type === 'strong') return HIGHLIGHT_COLOR;
+                            if (type === 'weak') return 'rgba(0, 245, 212, 0.15)';
+                            return 'rgba(255,255,255,0.01)';
+                        })
+                        .linkWidth(link => {
+                            if (highlightedNodes.size === 0) return 1;
+                            const type = getLinkType(link);
+                            if (type === 'strong') return 3.5;
+                            if (type === 'weak') return 1.2;
+                            return 0.5;
+                        })
+                        // Neuroni in azione (particelle di energia)
+                        .linkDirectionalParticles(link => {
+                            if (highlightedNodes.size === 0) return 0;
+                            const type = getLinkType(link);
+                            if (type === 'strong') return isGraphThinking ? 8 : 4;
+                            if (type === 'weak') return isGraphThinking ? 3 : 1;
+                            return 0;
+                        })
+                        .linkDirectionalParticleSpeed(link => {
+                            const type = getLinkType(link);
+                            const baseSpeed = type === 'strong' ? 0.025 : 0.01;
+                            // Durante la fase "thinking" di ragionamento le cariche elettriche corrono più veloci
+                            return isGraphThinking ? baseSpeed * 1.6 : baseSpeed;
+                        })
+                        .linkDirectionalParticleWidth(link => {
+                            const type = getLinkType(link);
+                            const baseWidth = type === 'strong' ? 4.5 : 2.0;
+                            return isGraphThinking ? baseWidth * 1.3 : baseWidth;
+                        })
+                        .linkDirectionalParticleColor(link => {
+                            const type = getLinkType(link);
+                            // Flusso ciano per i link principali, viola ad energia indotta per quelli adiacenti/deboli
+                            return type === 'strong' ? HIGHLIGHT_COLOR : 'rgba(157, 78, 221, 0.7)';
+                        })
+                        .cooldownTicks(150)
+                        .d3VelocityDecay(0.3)
+                        .onNodeHover(node => {
+                            hoverNode = node || null;
+                            document.body.style.cursor = node ? 'pointer' : null;
+                        });
+                    
+                    new ResizeObserver(() => {
+                        if (Graph && typeof Graph.width === 'function') {
+                            Graph.width(container.clientWidth).height(container.clientHeight);
+                        }
+                    }).observe(container);
+                }
+                
+                // Imposta modalità 2D o 3D
+                if (Graph && typeof Graph.numDimensions === 'function') {
+                    Graph.numDimensions(is3D ? 3 : 2);
+                }
+
+                // Blocco rotazione fotocamera e asse Z in modalità 2D (OrbitControls)
+                setTimeout(() => {
+                    if (Graph && typeof Graph.controls === 'function') {
+                        const controls = Graph.controls();
+                        if (controls) {
+                            controls.enableRotate = is3D;
+                            if (!is3D) {
+                                // Vincola la telecamera impedendo rotazioni su Z e pitch/yaw
+                                controls.minPolarAngle = Math.PI / 2;
+                                controls.maxPolarAngle = Math.PI / 2;
+                                controls.minAzimuthAngle = 0;
+                                controls.maxAzimuthAngle = 0;
+                                // Riposiziona camera a piombo
+                                Graph.cameraPosition({ x: 0, y: 0, z: 450 }, { x: 0, y: 0, z: 0 }, 500);
+                            } else {
+                                // Ripristina libertà di rotazione 3D
+                                controls.minPolarAngle = 0;
+                                controls.maxPolarAngle = Math.PI;
+                                controls.minAzimuthAngle = -Infinity;
+                                controls.maxAzimuthAngle = Infinity;
+                            }
+                        }
+                    }
+                }, 100);
+            } catch (err) {
+                console.error("Errore nell'inizializzazione del grafo WebGL:", err);
+                showGraphError();
+            }
+        }
+
+        function showGraphError() {
+            if (!container) return;
+            if (container.querySelector('.graph-error-msg')) return;
+            
+            const errDiv = document.createElement('div');
+            errDiv.className = 'graph-error-msg';
+            errDiv.style.position = 'absolute';
+            errDiv.style.top = '50%';
+            errDiv.style.left = '50%';
+            errDiv.style.transform = 'translate(-50%, -50%)';
+            errDiv.style.color = 'var(--text-secondary)';
+            errDiv.style.textAlign = 'center';
+            errDiv.style.padding = '20px';
+            errDiv.style.zIndex = '5';
+            errDiv.innerHTML = `
+                <svg viewBox="0 0 24 24" style="width: 48px; height: 48px; fill: none; stroke: var(--accent-purple); stroke-width: 1.5; margin-bottom: 12px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <h3 style="margin-bottom: 8px;">Grafica WebGL non disponibile</h3>
+                <p style="font-size:0.9rem; max-width: 300px; line-height: 1.4;">WebGL non supportato o errore nel caricamento delle librerie esterne. Il chatbot rimane completamente operativo.</p>
+            `;
+            container.appendChild(errDiv);
+        }
+
+        toggleBtn.addEventListener('click', () => {
+            is3D = !is3D;
+            toggleBtn.innerText = is3D ? "Switch to 2D" : "Switch to 3D";
+            initGraph();
+        });
+
+        // Estrattore di nodi pertinenti in base al testo immesso
+        function findRelevantNodes(text) {
+            if (!text || !graphData.nodes || graphData.nodes.length === 0) return [];
+            const cleanText = text.toLowerCase();
+            // Trova parole chiave significative (minimo 3 caratteri)
+            const words = cleanText.split(/[\s,.'"?!\(\)\[\]_#\-]+/g).filter(w => w.length >= 3);
+            
+            const matched = [];
+            graphData.nodes.forEach(node => {
+                const nodeLower = node.id.toLowerCase();
+                // Match se il nodo contiene una parola chiave o viceversa
+                const isMatch = words.some(w => nodeLower.includes(w) || w.includes(nodeLower));
+                if (isMatch) {
+                    matched.push(node.id);
+                }
+            });
+            return matched;
+        }
+
+        function highlightNodes(nodeIds, isThinking = false) {
+            if (!Graph || typeof Graph.nodeColor !== 'function') return;
+            try {
+                isGraphThinking = isThinking;
+                highlightedNodes.clear();
+                
+                // Mappa i nodi citati in modo tollerante
+                nodeIds.forEach(id => {
+                    const cleanId = id.split('/').pop().replace('.md', '').trim().toLowerCase();
+                    const matchedNode = graphData.nodes.find(n => n.id.toLowerCase() === cleanId);
+                    if (matchedNode) {
+                        highlightedNodes.add(matchedNode.id);
+                    }
+                });
+                
+                // Forza il ricalcolo degli attributi grafici
+                Graph.nodeColor(Graph.nodeColor());
+                Graph.nodeVal(Graph.nodeVal());
+                Graph.linkColor(Graph.linkColor());
+                Graph.linkWidth(Graph.linkWidth());
+                if (typeof Graph.linkDirectionalParticles === 'function') {
+                    Graph.linkDirectionalParticles(Graph.linkDirectionalParticles());
+                    Graph.linkDirectionalParticleSpeed(Graph.linkDirectionalParticleSpeed());
+                    Graph.linkDirectionalParticleWidth(Graph.linkDirectionalParticleWidth());
+                }
+ 
+                // Zoom e posizionamento dinamico baricentrico su TUTTI i nodi attivi
+                if (highlightedNodes.size > 0 && graphData.nodes.length > 0) {
+                    const activeNodes = graphData.nodes.filter(n => highlightedNodes.has(n.id));
+                    if (activeNodes.length > 0 && typeof Graph.cameraPosition === 'function') {
+                        let sumX = 0, sumY = 0, sumZ = 0;
+                        activeNodes.forEach(n => {
+                            sumX += n.x || 0;
+                            sumY += n.y || 0;
+                            sumZ += n.z || 0;
+                        });
+                        const avgX = sumX / activeNodes.length;
+                        const avgY = sumY / activeNodes.length;
+                        const avgZ = sumZ / activeNodes.length;
+                        
+                        // Trova la massima estensione dal baricentro
+                        let maxDist = 0;
+                        activeNodes.forEach(n => {
+                            const d = Math.hypot((n.x || 0) - avgX, (n.y || 0) - avgY, (n.z || 0) - avgZ);
+                            if (d > maxDist) maxDist = d;
+                        });
+                        
+                        // Calcola distanza ottimale
+                        const distance = Math.max(maxDist * 2.5, is3D ? 160 : 250);
+                        
+                        // In 2D manteniamo l'asse Z a piombo
+                        const camX = is3D ? avgX + distance * 0.6 : avgX;
+                        const camY = is3D ? avgY + distance * 0.6 : avgY;
+                        const camZ = is3D ? avgZ + distance * 0.6 : distance;
+                        
+                        Graph.cameraPosition(
+                            { x: camX, y: camY, z: camZ }, // posizione fotocamera
+                            { x: avgX, y: avgY, z: avgZ }, // target di lookAt (baricentro)
+                            1800 // durata della transizione fluida
+                        );
+                    }
+                }
+            } catch (err) {
+                console.warn("Errore nell'aggiornamento visivo del grafo:", err);
+            }
+        }
+
+        // Logica Chat
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatSubmit = document.getElementById('chat-submit');
+        let chatHistory = [];
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = chatInput.value.trim();
+            if (!message) return;
+
+            // Add User message
+            appendMessage('user', message);
+            chatInput.value = '';
+            chatSubmit.disabled = true;
+
+            // Add Loading Bot message
+            const loadingId = 'loading-' + Date.now();
+            appendMessage('bot', '<span class="loading-dots">Sto pensando</span>', loadingId);
+
+            // Rimodulazione e pre-evidenziazione immediata delle parole chiave
+            const relevantNodes = findRelevantNodes(message);
+            if (relevantNodes.length > 0) {
+                highlightNodes(relevantNodes, true);
+            }
+
+            // Effetto "cervello che ragiona" concentrato sul baricentro dei nodi di interesse
+            let thinkingInterval = null;
+            if (Graph && typeof Graph.cameraPosition === 'function') {
+                try {
+                    // Trova il baricentro dei nodi di interesse per ruotarvi attorno
+                    let targetX = 0, targetY = 0, targetZ = 0;
+                    let activeNodes = [];
+                    if (relevantNodes.length > 0) {
+                        activeNodes = graphData.nodes.filter(n => highlightedNodes.has(n.id));
+                    }
+                    
+                    if (activeNodes.length > 0) {
+                        let sumX = 0, sumY = 0, sumZ = 0;
+                        activeNodes.forEach(n => {
+                            sumX += n.x || 0;
+                            sumY += n.y || 0;
+                            sumZ += n.z || 0;
+                        });
+                        targetX = sumX / activeNodes.length;
+                        targetY = sumY / activeNodes.length;
+                        targetZ = sumZ / activeNodes.length;
+                    }
+                    
+                    const cam = Graph.cameraPosition();
+                    const dx = cam.x - targetX;
+                    const dz = cam.z - targetZ;
+                    let orbitAngle = Math.atan2(dx, dz);
+                    const dist = Math.hypot(dx, dz) || 400;
+                    
+                    thinkingInterval = setInterval(() => {
+                        if (Graph && typeof Graph.d3ReheatSimulation === 'function') {
+                            Graph.d3ReheatSimulation(); // Mantiene il grafo mobile
+                        }
+                        if (is3D && Graph && typeof Graph.cameraPosition === 'function') {
+                            orbitAngle += 0.025; // Orbita veloce simulando l'elaborazione attiva
+                            const nextX = targetX + dist * Math.sin(orbitAngle);
+                            const nextZ = targetZ + dist * Math.cos(orbitAngle);
+                            Graph.cameraPosition(
+                                { x: nextX, y: cam.y, z: nextZ },
+                                { x: targetX, y: targetY, z: targetZ }
+                            );
+                        }
+                    }, 40);
+                } catch (camErr) {
+                    console.warn("Impossibile far orbitare la camera:", camErr);
+                }
+            }
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message, history: chatHistory })
+                });
+
+                // Dopo aver inviato, aggiungiamo il messaggio utente alla history
+                chatHistory.push({ role: 'user', content: message });
+
+                const data = await res.json();
+                
+                const loadingElement = document.getElementById(loadingId);
+                if (loadingElement) loadingElement.remove();
+
+                if (res.ok) {
+                    chatHistory.push({ role: 'model', content: data.answer });
+                    
+                    // Mantieni max 14 messaggi (7 turni)
+                    if (chatHistory.length > 14) {
+                        chatHistory = chatHistory.slice(chatHistory.length - 14);
+                    }
+
+                    // Parser sicuro di markdown + wikilink
+                    let parsedContent = data.answer;
+                    if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                        parsedContent = marked.parse(data.answer);
+                    } else {
+                        parsedContent = fallbackMarkdown(data.answer);
+                    }
+                    parsedContent = parseWikilinks(parsedContent);
+                    appendMessage('bot', parsedContent);
+                    
+                    // Disattiva stato thinking e applica evidenziazione e zoom finale sui nodi citati
+                    if (thinkingInterval) {
+                        clearInterval(thinkingInterval);
+                        thinkingInterval = null;
+                    }
+                    if (data.cited_nodes && data.cited_nodes.length > 0) {
+                        highlightNodes(data.cited_nodes, false);
+                    } else {
+                        // Mantieni l'evidenziazione di input se l'AI non cita nodi specifici
+                        isGraphThinking = false;
+                        Graph.nodeColor(Graph.nodeColor());
+                        if (typeof Graph.linkDirectionalParticles === 'function') {
+                            Graph.linkDirectionalParticles(Graph.linkDirectionalParticles());
+                        }
+                    }
+                } else {
+                    appendMessage('bot', `Errore: ${data.error}`);
+                    chatHistory.pop(); // Rimuovi il messaggio utente se la chiamata fallisce
+                }
+
+            } catch (err) {
+                const loadingElement = document.getElementById(loadingId);
+                if (loadingElement) loadingElement.remove();
+                appendMessage('bot', "Errore di connessione al server.");
+                if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'user') {
+                    chatHistory.pop();
+                }
+            } finally {
+                if (thinkingInterval) clearInterval(thinkingInterval);
+                chatSubmit.disabled = false;
+                chatInput.focus();
+            }
+        });
+
+        function appendMessage(sender, content, id = null) {
+            const div = document.createElement('div');
+            div.className = `message ${sender}`;
+            if (id) div.id = id;
+            div.innerHTML = content;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // --- Fallback Markdown Parser (per grassetti ed elementi base se marked CDN fallisce) ---
+        function fallbackMarkdown(text) {
+            let html = text;
+            // Format bold: **text** -> <strong>text</strong>
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // Format italic: *text* -> <em>text</em>
+            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            // Format code inline: `code` -> <code>code</code>
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Format line breaks: \n -> <br>
+            html = html.replace(/\n/g, '<br>');
+            return html;
+        }
+
+        // --- Parser per convertire i [[Wikilink]] in link HTML interattivi ---
+        function parseWikilinks(text) {
+            // Riconosce [[Percorso/File|Etichetta]] o [[Percorso/File]]
+            return text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (match, path, label) => {
+                const cleanPath = path.trim();
+                const displayLabel = label ? label.trim() : cleanPath.split('/').pop();
+                return `<a href="#" class="wiki-link" data-path="${cleanPath}">${displayLabel}</a>`;
+            });
+        }
+
+        // --- Elementi e Controllo del Modale di Approfondimento ---
+        const modal = document.getElementById('wiki-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-body');
+        const modalClose = document.getElementById('modal-close');
+
+        function showModalLoading(path) {
+            modalTitle.innerText = "Caricamento...";
+            modalBody.innerHTML = `
+                <div style="display:flex; justify-content:center; align-items:center; height:100%; min-height: 250px; flex-direction:column; gap:15px; color: var(--text-secondary);">
+                    <div style="width: 40px; height: 40px; border: 3px solid rgba(0,245,212,0.1); border-radius: 50%; border-top-color: var(--accent-cyan); animation: spin 1s linear infinite;"></div>
+                    <p>Sto leggendo la scheda <strong>${path}</strong>...</p>
+                </div>
+                <style>
+                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                </style>
+            `;
+            modal.style.display = 'flex';
+        }
+
+        function showModal(title, htmlContent) {
+            modalTitle.innerText = title;
+            modalBody.innerHTML = htmlContent;
+            modal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            modal.style.display = 'none';
+        }
+
+        modalClose.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+        
+        // Chiude col tasto ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+
+        // Event delegation per i click sui link delle schede wiki
+        document.addEventListener('click', async (e) => {
+            const link = e.target.closest('.wiki-link');
+            if (!link) return;
+            
+            e.preventDefault();
+            const path = link.getAttribute('data-path');
+            if (!path) return;
+            
+            showModalLoading(path);
+            
+            try {
+                const res = await fetch(`/api/wiki?path=${encodeURIComponent(path)}`);
+                if (!res.ok) {
+                    throw new Error(`Impossibile caricare il file "${path}" nel vault.`);
+                }
+                const data = await res.json();
+                
+                // Formatta il frontmatter se presente
+                let metaHtml = "";
+                if (data.frontmatter && Object.keys(data.frontmatter).length > 0) {
+                    metaHtml += `<div class="wiki-metadata" style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9rem; border-left: 3px solid var(--accent-purple); border-right: 1px solid rgba(255,255,255,0.05); border-top: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05);">`;
+                    for (const [key, val] of Object.entries(data.frontmatter)) {
+                        if (val !== null && val !== undefined) {
+                            if (typeof val === 'object') {
+                                metaHtml += `<strong>${key}</strong>: ${JSON.stringify(val)}<br>`;
+                            } else {
+                                metaHtml += `<strong>${key}</strong>: ${val}<br>`;
+                            }
+                        }
+                    }
+                    metaHtml += `</div>`;
+                }
+                
+                // Conversione corpo markdown
+                let contentHtml = data.content;
+                if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                    contentHtml = marked.parse(data.content);
+                } else {
+                    contentHtml = fallbackMarkdown(data.content);
+                }
+                
+                // Converte ricorsivamente i wikilink anche all'interno del modale
+                contentHtml = parseWikilinks(contentHtml);
+                
+                showModal(data.title, metaHtml + contentHtml);
+            } catch (err) {
+                console.error(err);
+                showModal("Errore", `
+                    <div style="color: #ff6b6b; padding: 30px; text-align: center;">
+                        <svg viewBox="0 0 24 24" style="width: 48px; height: 48px; fill: none; stroke: currentColor; stroke-width: 1.5; margin-bottom: 15px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <h3 style="margin-bottom: 10px;">Impossibile trovare la scheda</h3>
+                        <p style="font-size: 0.95rem; opacity: 0.8;">La nota <strong>[[${path}]]</strong> non esiste ancora nel vault o il percorso non è valido.</p>
+                    </div>
+                `);
+            }
+        });
+    </script>
+</body>
+</html>

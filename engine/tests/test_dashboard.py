@@ -60,3 +60,17 @@ def test_webhook_success(mock_start):
     assert response.json() == {"status": "triggered", "source": "notion"}
     mock_start.assert_called_once_with(source="notion")
 
+def test_get_wiki_success():
+    # 'wiki/entities/FF3300.md' esiste nel vault e dovrebbe essere risolto
+    response = client.get("/api/wiki?path=FF3300")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "FF3300"
+    assert "path" in data
+    assert "content" in data
+    assert "frontmatter" in data
+
+def test_get_wiki_not_found():
+    response = client.get("/api/wiki?path=NonExistentNoteXYZ123")
+    assert response.status_code == 404
+

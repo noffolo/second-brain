@@ -162,6 +162,7 @@ def search_wiki(query: str) -> list[dict]:
     """
     Effettua una ricerca testuale (case-insensitive) all'interno di tutti i file markdown del wiki
     utilizzando `git grep --no-index` e estrazione veloce del testo per massimizzare le performance.
+    I risultati sono ordinati per pertinenza rispetto al titolo della nota.
     """
     import subprocess
     vault = get_vault_path()
@@ -170,6 +171,26 @@ def search_wiki(query: str) -> list[dict]:
     if not query.strip():
         return results
         
+    query_lower = query.lower()
+    
+    # Sistema di scoring pertinenza
+    def get_priority_score(rel_path: str) -> int:
+        filename = os.path.basename(rel_path).lower()
+        title = os.path.splitext(filename)[0]
+        # Match esatto del titolo
+        if title == query_lower:
+            return 100
+        # Il titolo inizia con la query
+        if title.startswith(query_lower):
+            return 80
+        # La query è contenuta nel titolo
+        if query_lower in title:
+            return 60
+        # La query è nel percorso/cartelle
+        if query_lower in rel_path.lower():
+            return 40
+        return 0
+
     try:
         # Comando git grep ultra-rapido
         cmd = [
@@ -189,81 +210,96 @@ def search_wiki(query: str) -> list[dict]:
             encoding="utf-8"
         )
         
-        if res.returncode != 0:
-            return results
+        if res.returncode == 0:
+            matching_files = [line.strip() for line in res.stdout.splitlines() if line.strip()]
             
-        matching_files = [line.strip() for line in res.stdout.splitlines() if line.strip()]
-        
-        for rel_filepath in matching_files:
-            if len(results) >= 20:
-                break
-            # Solo file che si trovano nelle cartelle monitorate
-            allowed = False
-            for sdir in ["wiki", "CRM", "journal", "Meetings", "Microthemes"]:
-                if rel_filepath.startswith(sdir + "/") or rel_filepath.startswith(sdir + "\\"):
-                    allowed = True
+            # Filtra subito per cartelle permesse
+            allowed_files = []
+            for rel_filepath in matching_files:
+                allowed = False
+                for sdir in ["wiki", "CRM", "journal", "Meetings", "Microthemes"]:
+                    if rel_filepath.startswith(sdir + "/") or rel_filepath.startswith(sdir + "\\"):
+                        allowed = True
+                        break
+                if allowed:
+                    allowed_files.append(rel_filepath)
+            
+            # Ordina per score di pertinenza
+            allowed_files.sort(key=get_priority_score, reverse=True)
+            
+            # Leggi i file ordinati fino al limite desiderato
+            for rel_filepath in allowed_files:
+                if len(results) >= 20:
                     break
                     
-            if not allowed:
-                continue
-                
-            abs_filepath = os.path.join(vault, rel_filepath)
-            if not os.path.exists(abs_filepath):
-                continue
-                
-            try:
-                with open(abs_filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
-                
-                # Estrazione ultra-veloce del body senza fare il parsing YAML/Markdown
-                if content.startswith("---"):
-                    parts = content.split("---", 2)
-                    body = parts[2] if len(parts) >= 3 else content
-                else:
-                    body = content
-                
-                body_clean = body.strip()
-                title = os.path.splitext(os.path.basename(rel_filepath))[0]
-                results.append({
-                    "path": rel_filepath,
-                    "title": title,
-                    "snippet": body_clean[:200] + "..." if len(body_clean) > 200 else body_clean
-                })
-            except Exception:
-                pass
-                
+                abs_filepath = os.path.join(vault, rel_filepath)
+                if not os.path.exists(abs_filepath):
+                    continue
+                    
+                try:
+                    with open(abs_filepath, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    
+                    # Estrazione ultra-veloce del body senza fare il parsing YAML/Markdown
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+                        body = parts[2] if len(parts) >= 3 else content
+                    else:
+                        body = content
+                    
+                    body_clean = body.strip()
+                    title = os.path.splitext(os.path.basename(rel_filepath))[0]
+                    results.append({
+                        "path": rel_filepath,
+                        "title": title,
+                        "snippet": body_clean[:200] + "..." if len(body_clean) > 200 else body_clean
+                    })
+                except Exception:
+                    pass
+            return results
+            
     except Exception as e:
         print(f"Errore durante l'esecuzione di git grep: {e}. Fallback su scansione lineare.")
-        # Fallback a scansione lineare originale
-        search_dirs = ["wiki", "CRM", "journal", "Meetings", "Microthemes"]
-        for sdir in search_dirs:
-            abs_sdir = os.path.join(vault, sdir)
-            if not os.path.exists(abs_sdir):
-                continue
-            for root, _, files in os.walk(abs_sdir):
-                for file in files:
-                    if file.endswith(".md"):
-                        abs_filepath = os.path.join(root, file)
-                        rel_filepath = os.path.relpath(abs_filepath, vault)
-                        try:
-                            with open(abs_filepath, "r", encoding="utf-8") as f:
-                                content = f.read()
-                            if query.lower() in content.lower():
-                                if content.startswith("---"):
-                                    parts = content.split("---", 2)
-                                    body = parts[2] if len(parts) >= 3 else content
-                                else:
-                                    body = content
-                                body_clean = body.strip()
-                                results.append({
-                                    "path": rel_filepath,
-                                    "title": file.replace(".md", ""),
-                                    "snippet": body_clean[:200] + "..." if len(body_clean) > 200 else body_clean
-                                })
-                        except Exception:
-                            pass
-        return results[:20]
 
+    # Fallback a scansione lineare originale ordinata per rilevanza
+    search_dirs = ["wiki", "CRM", "journal", "Meetings", "Microthemes"]
+    temp_results = []
+    for sdir in search_dirs:
+        abs_sdir = os.path.join(vault, sdir)
+        if not os.path.exists(abs_sdir):
+            continue
+        for root, _, files in os.walk(abs_sdir):
+            for file in files:
+                if file.endswith(".md"):
+                    abs_filepath = os.path.join(root, file)
+                    rel_filepath = os.path.relpath(abs_filepath, vault)
+                    try:
+                        with open(abs_filepath, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        if query.lower() in content.lower():
+                            if content.startswith("---"):
+                                parts = content.split("---", 2)
+                                body = parts[2] if len(parts) >= 3 else content
+                            else:
+                                body = content
+                            body_clean = body.strip()
+                            temp_results.append({
+                                "path": rel_filepath,
+                                "title": file.replace(".md", ""),
+                                "snippet": body_clean,
+                                "score": get_priority_score(rel_filepath)
+                            })
+                    except Exception:
+                        pass
+                        
+    temp_results.sort(key=lambda x: x["score"], reverse=True)
+    for r in temp_results[:20]:
+        body_clean = r["snippet"]
+        results.append({
+            "path": r["path"],
+            "title": r["title"],
+            "snippet": body_clean[:200] + "..." if len(body_clean) > 200 else body_clean
+        })
     return results
 
 def list_unprocessed_raw() -> list[str]:

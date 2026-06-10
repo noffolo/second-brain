@@ -16,9 +16,16 @@ except ImportError:
     TELEGRAM_AVAILABLE = False
 
 from engine.query_agent import query_agent_answer
+from engine.tools.vault_tools import get_vault_path
+from engine.utils.chat_memory import ChatMemory
 import httpx
 
 DASHBOARD_URL = "http://localhost:8000"
+
+# Initialize memory
+vault_path = get_vault_path()
+chat_memory = ChatMemory(os.path.join(vault_path, "telegram_memory.json"), max_messages=14) # 7 turns
+
 
 def is_authorized(update: Update) -> bool:
     allowed_users_str = os.getenv("TELEGRAM_ALLOWED_USERS", "")
@@ -277,6 +284,23 @@ def format_for_telegram(text: str) -> str:
     text = text.replace("**", "*")
     return text
 
+def split_message(text: str, chunk_size: int = 4000) -> list[str]:
+    chunks = []
+    while len(text) > chunk_size:
+        # Trova l'ultimo newline entro il chunk_size
+        split_at = text.rfind('\n', 0, chunk_size)
+        if split_at == -1:
+            # Fallback allo spazio
+            split_at = text.rfind(' ', 0, chunk_size)
+            if split_at == -1:
+                # Forza lo split a metà parola
+                split_at = chunk_size
+        chunks.append(text[:split_at])
+        text = text[split_at:].strip()
+    if text:
+        chunks.append(text)
+    return chunks
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
@@ -286,14 +310,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     
+    # Comandi speciali di reset contesto (opzionale ma utile)
+    if user_message.lower().strip() == "/clear":
+        chat_memory.clear_history(chat_id)
+        await update.message.reply_text("Memoria della conversazione azzerata.")
+        return
+        
     try:
-        answer = await query_agent_answer(user_message)
+        # Aggiungi il messaggio dell'utente alla memoria
+        chat_memory.add_message(chat_id, "user", user_message)
+        history = chat_memory.get_history(chat_id)
+        
+        # Passa la history all'agente
+        answer = await query_agent_answer(user_message, history=history)
+        
+        # Aggiungi la risposta alla memoria
+        chat_memory.add_message(chat_id, "model", answer)
+        
         formatted_answer = format_for_telegram(answer)
-        try:
-            await update.message.reply_text(formatted_answer, parse_mode="Markdown")
-        except Exception as telegram_err:
-            print(f"[Telegram] Invio con parse_mode='Markdown' fallito ({telegram_err}). Invio come testo semplice...")
-            await update.message.reply_text(formatted_answer)
+        
+        # Splitting del messaggio se troppo lungo
+        chunks = split_message(formatted_answer)
+        for chunk in chunks:
+            try:
+                await update.message.reply_text(chunk, parse_mode="Markdown")
+            except Exception as telegram_err:
+                print(f"[Telegram] Invio con parse_mode='Markdown' fallito ({telegram_err}). Invio come testo semplice...")
+                await update.message.reply_text(chunk)
+                
     except Exception as e:
         await update.message.reply_text(f"Errore durante l'elaborazione della domanda: {e}")
 

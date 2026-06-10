@@ -22,6 +22,8 @@ from engine.tools.vault_tools import (
     search_wiki
 )
 from engine.git_ops import auto_commit
+from engine.tools.embedder import chunk_text
+from engine.utils.vector_db import get_vector_db
 
 # Pydantic schemas for Structured Outputs / Validation
 class SourceSummary(BaseModel):
@@ -449,6 +451,13 @@ Restituisci solo ed esclusivamente il blocco JSON.
     write_wiki_page(source_path, source_body, source_fm)
     update_index(source_path, source_summary.get("summary", "")[:100])
     
+    # Salva su ChromaDB
+    try:
+        db = get_vector_db()
+        db.upsert_chunks(source_path, source_title, chunk_text(source_body))
+    except Exception as e:
+        print(f"Errore salvataggio vettore per {source_path}: {e}")
+    
     # 2. Concept pages
     for concept in data.get("concepts", []):
         c_name = concept.get("name")
@@ -479,6 +488,12 @@ Restituisci solo ed esclusivamente il blocco JSON.
         
         write_wiki_page(c_path, c_body, c_fm)
         update_index(c_path, concept.get("description", "")[:100])
+        
+        try:
+            db = get_vector_db()
+            db.upsert_chunks(c_path, c_clean, chunk_text(c_body))
+        except Exception as e:
+            print(f"Errore salvataggio vettore per {c_path}: {e}")
         
     # 3. Entity pages
     for entity in data.get("entities", []):
@@ -529,6 +544,12 @@ Restituisci solo ed esclusivamente il blocco JSON.
         
         write_wiki_page(e_path, e_body, e_fm)
         update_index(e_path, entity.get("description", "")[:100])
+        
+        try:
+            db = get_vector_db()
+            db.upsert_chunks(e_path, target_name, chunk_text(e_body))
+        except Exception as e:
+            print(f"Errore salvataggio vettore per {e_path}: {e}")
         
     save_processed_file(rel_path)
     append_to_log(f"[AI Ingest] Elaborato '{rel_path}' -> Creato source [[{clean_title}]]")

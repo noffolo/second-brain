@@ -19,6 +19,8 @@ dependencies = [
     "mcp>=0.1.0",
     "imapclient>=3.0.1",
     "markdown>=3.6",
+    "chromadb>=0.4.0",
+    "google-genai>=0.1.0",
 ]
 
 [project.optional-dependencies]

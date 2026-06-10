@@ -193,6 +193,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Secondo Cervello - Dashboard", lifespan=lifespan)
 
+from fastapi.staticfiles import StaticFiles
+app.mount("/fonts", StaticFiles(directory=os.path.join(get_vault_path(), "fonts")), name="fonts")
+
 class TimeScheduleRequest(BaseModel):
     time: str  # Format: "HH:MM"
 
@@ -351,7 +354,141 @@ def set_schedule_time(time_str: str) -> bool:
         print(f"Errore nel salvare l'orario: {e}")
         return False
 
+# --- Graph Engine Backend ---
+_graph_cache = None
+_graph_cache_time = 0
+
+def build_graph_data():
+    global _graph_cache, _graph_cache_time
+    import time
+    if _graph_cache and (time.time() - _graph_cache_time < 3600):
+        return _graph_cache
+        
+    vault_path = get_vault_path()
+    nodes = []
+    links = []
+    wiki_re = re.compile(r'\[\[(.*?)\]\]')
+    folders = ["wiki", "CRM", "Meetings", "People", "journal", "Microthemes"]
+    node_set = set()
+    edges = []
+    
+    for folder in folders:
+        abs_folder = os.path.join(vault_path, folder)
+        if not os.path.exists(abs_folder): continue
+        for root, _, files in os.walk(abs_folder):
+            for file in files:
+                if file.endswith(".md"):
+                    file_path = os.path.join(root, file)
+                    node_id = file.replace(".md", "")
+                    node_set.add(node_id)
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            matches = wiki_re.findall(content)
+                            for match in matches:
+                                target = match.split("|")[0].strip()
+                                edges.append({"source": node_id, "target": target})
+                                node_set.add(target)
+                    except:
+                        pass
+                        
+    for n in node_set:
+        degree = sum(1 for e in edges if e["source"] == n or e["target"] == n)
+        nodes.append({"id": n, "name": n, "val": max(degree, 1), "group": 1})
+        
+    for e in edges:
+        links.append({"source": e["source"], "target": e["target"]})
+        
+    _graph_cache = {"nodes": nodes, "links": links}
+    _graph_cache_time = time.time()
+    return _graph_cache
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[List[dict]] = None
+
 # --- Web UI Routes ---
+@app.get("/graph", response_class=HTMLResponse)
+def read_graph():
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "graph_chat.html")
+    if os.path.exists(template_path):
+        with open(template_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "Template non trovato."
+
+@app.get("/api/graph")
+def get_graph():
+    return build_graph_data()
+
+@app.get("/api/wiki")
+def get_wiki_page(path: str):
+    """
+    Ritorna il contenuto di una pagina wiki specificata dal percorso relativo o dal titolo,
+    effettuando una ricerca tollerante all'interno delle cartelle del vault.
+    """
+    vault_path = get_vault_path()
+    clean_path = os.path.normpath(path).replace("\\", "/").lstrip('/')
+    if clean_path.startswith("..") or os.path.isabs(clean_path):
+        raise HTTPException(status_code=400, detail="Percorso non valido.")
+        
+    # Se il file non esiste direttamente con estensione .md, proviamo a risolverlo
+    if not clean_path.endswith(".md"):
+        # 1. Controlla cartelle comuni
+        possible_folders = ["wiki/entities", "wiki/concepts", "wiki/sources", "wiki/synthesis", "CRM", "Meetings", "journal", "Microthemes"]
+        found = False
+        for folder in possible_folders:
+            test_path = os.path.join(folder, clean_path + ".md")
+            if os.path.exists(os.path.join(vault_path, test_path)):
+                clean_path = test_path
+                found = True
+                break
+                
+        # 2. Se non ancora trovato, cammina nel vault per cercare NoteName.md
+        if not found:
+            filename = os.path.basename(clean_path)
+            if not filename.endswith(".md"):
+                filename += ".md"
+            for root, _, files in os.walk(vault_path):
+                # Salta cartelle di configurazione/ambiente
+                if any(x in root for x in [".git", ".venv", ".pytest_cache", "__pycache__"]):
+                    continue
+                if filename in files:
+                    clean_path = os.path.relpath(os.path.join(root, filename), vault_path)
+                    found = True
+                    break
+                    
+    # Assicurati di aggiungere .md se manca ed è un file locale diretto
+    if not clean_path.endswith(".md"):
+        clean_path += ".md"
+        
+    abs_path = os.path.join(vault_path, clean_path)
+    if not os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail=f"Pagina wiki '{path}' non trovata.")
+        
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        fm, body = parse_markdown(content)
+        title = os.path.splitext(os.path.basename(clean_path))[0]
+        return {
+            "path": clean_path,
+            "title": title,
+            "frontmatter": fm,
+            "content": body
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat")
+async def chat_endpoint(req: ChatRequest):
+    try:
+        ans = await query_agent_answer(req.message, history=req.history)
+        wiki_re = re.compile(r'\[\[(.*?)\]\]')
+        cited = [m.split("|")[0].strip() for m in wiki_re.findall(ans)]
+        return {"answer": ans, "cited_nodes": cited}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     template_path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
