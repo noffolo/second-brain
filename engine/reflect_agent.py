@@ -152,28 +152,31 @@ Restituisci solo ed esclusivamente il markdown della pagina.
         **kwargs
     )
     print(f"Avvio Reflect Agent con modello '{model}' per generare {reflection_filename}...")
-    async with Agent(config) as agent:
-        try:
-            response = await agent.chat(prompt)
-            resp_text = await response.text()
-            
-            # Save reflection
-            fm = {
-                "type": "synthesis",
-                "week": f"{year}-W{week:02d}",
-                "generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            
-            write_wiki_page(reflection_rel_path, resp_text, fm)
-            update_index(reflection_rel_path, f"Riflessione settimanale della settimana W{week}")
-            append_to_log(f"[AI Reflect] Generata riflessione settimanale [[{reflection_filename.replace('.md', '')}]]")
-            
-            # Git auto commit
-            auto_commit(vault_path, f"[AI Reflect] Generata riflessione settimanale W{week}")
-            print(f"Riflessione settimanale generata con successo: {reflection_rel_path}")
-            
-        except Exception as e:
-            print(f"Errore durante la generazione della riflessione: {e}")
+    from engine.utils.llm_fallback import call_llm_with_fallback
+    try:
+        resp_text = await call_llm_with_fallback(
+            prompt=prompt,
+            system_instructions=instructions,
+            gemini_config=config
+        )
+        
+        # Save reflection
+        fm = {
+            "type": "synthesis",
+            "week": f"{year}-W{week:02d}",
+            "generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        write_wiki_page(reflection_rel_path, resp_text, fm)
+        update_index(reflection_rel_path, f"Riflessione settimanale della settimana W{week}")
+        append_to_log(f"[AI Reflect] Generata riflessione settimanale [[{reflection_filename.replace('.md', '')}]]")
+        
+        # Git auto commit
+        auto_commit(vault_path, f"[AI Reflect] Generata riflessione settimanale W{week}")
+        print(f"Riflessione settimanale generata con successo: {reflection_rel_path}")
+        
+    except Exception as e:
+        print(f"Errore durante la generazione della riflessione: {e}")
 
 if __name__ == "__main__":
     asyncio.run(run_reflection())

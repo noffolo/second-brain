@@ -76,28 +76,55 @@ PROFILO UTENTE (WORKING MEMORY):
         **kwargs
     )
 
+async def query_agent_with_fallback(question: str, config: LocalAgentConfig) -> str:
+    # 1. Prova ad usare l'Agent nativo di Gemini (con tool search_wiki/read_wiki_page_content)
+    try:
+        gemini_key = os.getenv("GEMINI_API_KEY", "")
+        if not gemini_key or gemini_key == "dummy-key":
+            raise ValueError("GEMINI_API_KEY non impostata o impostata come dummy-key")
+            
+        async with Agent(config) as agent:
+            response = await agent.chat(question)
+            return await response.text()
+    except Exception as e:
+        print(f"[Query Fallback] Gemini API fallita o non disponibile ({e}). Tento RAG locale con LLM di fallback...")
+        
+        # 2. RAG locale: cerca nel vault ed estrae il contesto
+        search_results = search_wiki(question)
+        context = ""
+        if search_results:
+            context = "\n\nRisultati della ricerca nel vault:\n"
+            for r in search_results[:5]: # top 5
+                page_content = read_wiki_page_content(r['path'])
+                context += f"\n--- Nota: {r['path']} ---\n{page_content}\n"
+                
+        enriched_prompt = f"{question}\n{context}"
+        
+        from engine.utils.llm_fallback import call_llm_with_fallback
+        return await call_llm_with_fallback(
+            prompt=enriched_prompt,
+            system_instructions=config.system_instructions,
+            gemini_config=config
+        )
+
 async def run_interactive_loop():
     config = await get_query_agent_config()
     print("Inizializzazione sessione interattiva col Secondo Cervello...")
-    async with Agent(config) as agent:
-        print("Pronto! Digita 'exit' o 'quit' per uscire.")
-        while True:
-            try:
-                user_input = input("\nUser: ").strip()
-                if not user_input:
-                    continue
-                if user_input.lower() in ["exit", "quit"]:
-                    break
-                    
-                response = await agent.chat(user_input)
-                print("Agent: ", end="")
-                async for chunk in response:
-                    print(chunk, end="", flush=True)
-                print()
-            except KeyboardInterrupt:
+    print("Pronto! Digita 'exit' o 'quit' per uscire.")
+    while True:
+        try:
+            user_input = input("\nUser: ").strip()
+            if not user_input:
+                continue
+            if user_input.lower() in ["exit", "quit"]:
                 break
-            except Exception as e:
-                print(f"Errore durante l'interazione: {e}")
+                
+            answer = await query_agent_with_fallback(user_input, config)
+            print(f"Agent: {answer}")
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"Errore durante l'interazione: {e}")
 
 async def check_and_respond_chat(agent: Agent, chat_file_path: str):
     if not os.path.exists(chat_file_path):
@@ -129,9 +156,8 @@ async def check_and_respond_chat(agent: Agent, chat_file_path: str):
                 
             print(f"Nuova richiesta chat rilevata: '{query_text[:40]}...'")
             
-            # Send message to agent
-            response = await agent.chat(query_text)
-            resp_text = await response.text()
+            config = await get_query_agent_config()
+            resp_text = await query_agent_with_fallback(query_text, config)
             
             # Append response to file
             with open(chat_file_path, "a", encoding="utf-8") as f:
@@ -151,36 +177,28 @@ async def run_chat_watcher():
     vault_path = get_vault_path()
     chat_file_path = os.path.join(vault_path, "chat.md")
     
-    config = await get_query_agent_config()
     print("Avvio del daemon chat watcher su chat.md...")
     print("Controlli eseguiti ogni 2 secondi. Premi Ctrl+C per arrestare.")
     
-    async with Agent(config) as agent:
-        while True:
-            try:
-                await check_and_respond_chat(agent, chat_file_path)
-                await asyncio.sleep(2)
-            except KeyboardInterrupt:
-                print("\nWatcher arrestato.")
-                break
-            except Exception as e:
-                print(f"Errore watcher: {e}")
-                await asyncio.sleep(5)
+    while True:
+        try:
+            await check_and_respond_chat(None, chat_file_path)
+            await asyncio.sleep(2)
+        except KeyboardInterrupt:
+            print("\nWatcher arrestato.")
+            break
+        except Exception as e:
+            print(f"Errore watcher: {e}")
+            await asyncio.sleep(5)
 
 async def run_single_query(question: str):
     config = await get_query_agent_config()
-    async with Agent(config) as agent:
-        response = await agent.chat(question)
-        print("Agent: ", end="")
-        async for chunk in response:
-            print(chunk, end="", flush=True)
-        print()
+    answer = await query_agent_with_fallback(question, config)
+    print(f"Agent: {answer}")
 
 async def query_agent_answer(question: str) -> str:
     config = await get_query_agent_config()
-    async with Agent(config) as agent:
-        response = await agent.chat(question)
-        return await response.text()
+    return await query_agent_with_fallback(question, config)
 
 if __name__ == "__main__":
     # Interactive default
