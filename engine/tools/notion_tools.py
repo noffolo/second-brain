@@ -14,6 +14,24 @@ except ImportError:
 def get_vault_path() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
+def query_notion_database(client, db_id: str, body: dict = None) -> dict:
+    """
+    Risolve ed interroga un database Notion o la sua sorgente dati sottostante (data_source).
+    """
+    if body is None:
+        body = {}
+    try:
+        db_meta = client.databases.retrieve(database_id=db_id)
+        data_sources = db_meta.get("data_sources", [])
+        if data_sources and isinstance(data_sources, list) and len(data_sources) > 0:
+            ds_id = data_sources[0].get("id")
+            if ds_id:
+                return client.data_sources.query(data_source_id=ds_id, **body)
+    except Exception as e:
+        print(f"[NOTION] Errore retrieve per database {db_id}: {e}")
+        
+    return client.data_sources.query(data_source_id=db_id, **body)
+
 def parse_notion_table_to_markdown(client, table_block_id: str, table_info: dict, indent: str) -> str:
     """
     Scarica i blocchi table_row di una tabella e genera la sintassi markdown della tabella.
@@ -295,25 +313,12 @@ def notion_sync_to_raw() -> int:
                         body = {}
                         if next_cursor:
                             body["start_cursor"] = next_cursor
-                        resp = client.request(path=f"databases/{db_id}/query", method="POST", body=body)
+                        resp = query_notion_database(client, db_id, body)
                         db_results.extend(resp.get("results", []))
                         has_more = resp.get("has_more", False)
                         next_cursor = resp.get("next_cursor")
                 except Exception as e:
-                    print(f"Nota: databases/query fallito ({e}). Tento data_sources/query...")
-                    try:
-                        has_more = True
-                        next_cursor = None
-                        while has_more:
-                            body = {}
-                            if next_cursor:
-                                body["start_cursor"] = next_cursor
-                            resp = client.request(path=f"data_sources/{db_id}/query", method="POST", body=body)
-                            db_results.extend(resp.get("results", []))
-                            has_more = resp.get("has_more", False)
-                            next_cursor = resp.get("next_cursor")
-                    except Exception as e2:
-                        print(f"Nota: data_sources/query fallito ({e2}).")
+                    print(f"Errore durante l'interrogazione del database {db_id}: {e}")
                 results.extend(db_results)
                     
         # 2. Se sync_all è abilitato, esegui anche la ricerca globale per altre pagine
