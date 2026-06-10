@@ -1,0 +1,18 @@
+[0;1;32m*[0m secondbrain.service - Secondo Cervello FastAPI Dashboard & Engine
+     Loaded: loaded (]8;;file://opencode/root/.config/systemd/user/secondbrain.service/root/.config/systemd/user/secondbrain.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Wed 2026-06-10 10:57:45 UTC; 21s ago
+   Main PID: 1946922 (python)
+      Tasks: 3 (limit: 37668)
+     Memory: 83.9M (peak: 95.4M)
+        CPU: 1.407s
+     CGroup: /user.slice/user-0.slice/user@0.service/app.slice/secondbrain.service
+             `-[0;38;5;245m1946922 /root/second_brain/.venv/bin/python -m uvicorn engine.dashboard:app --host 0.0.0.0 --port 8000[0m
+
+Jun 10 10:57:45 opencode systemd[2934151]: Started secondbrain.service - Secondo Cervello FastAPI Dashboard & Engine.
+Jun 10 10:57:47 opencode python[1946922]: INFO:     Started server process [1946922]
+Jun 10 10:57:47 opencode python[1946922]: INFO:     Waiting for application startup.
+Jun 10 10:57:47 opencode python[1946922]: [IMAP-IDLE] Nessun account IMAP configurato per il listener IDLE.
+Jun 10 10:57:47 opencode python[1946922]: [SCHEDULER] Avvio del ciclo dello scheduler universale...
+Jun 10 10:57:47 opencode python[1946922]: [WATCHER] Monitoraggio avviato su: /root/second_brain/raw e /root/second_brain/Meetings
+Jun 10 10:57:47 opencode python[1946922]: INFO:     Application startup complete.
+Jun 10 10:57:47 opencode python[1946922]: INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
