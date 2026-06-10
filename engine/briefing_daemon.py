@@ -31,40 +31,44 @@ def parse_datetime(dt_str: str) -> datetime.datetime or None:
 
 def find_upcoming_unbriefed_events(vault_path: str) -> list[tuple[str, dict, str]]:
     """
-    Scansiona wiki/entities/ per trovare eventi con start_time tra 5 e 20 minuti nel futuro
+    Scansiona wiki/entities/ e raw/calendar/ per trovare eventi con start_time tra 5 e 20 minuti nel futuro
     e che non contengano briefed: true nel frontmatter.
     Ritorna una lista di tuple (rel_path, frontmatter, body_content).
     """
     upcoming = []
-    entities_dir = os.path.join(vault_path, "wiki", "entities")
-    if not os.path.exists(entities_dir):
-        return upcoming
-        
+    scan_dirs = [
+        os.path.join(vault_path, "wiki", "entities"),
+        os.path.join(vault_path, "raw", "calendar")
+    ]
+    
     now = datetime.datetime.now()
     window_start = now + datetime.timedelta(minutes=5)
     window_end = now + datetime.timedelta(minutes=20)
     
-    for root, _, files in os.walk(entities_dir):
-        for file in files:
-            if file.endswith(".md") and not file.startswith("."):
-                filepath = os.path.join(root, file)
-                try:
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        content = f.read()
-                    fm, body = parse_markdown(content)
-                    
-                    if fm.get("type") in ["calendar_event", "appointment"] and not fm.get("briefed", False):
-                        start_time_str = fm.get("start_time", "")
-                        dt_start = parse_datetime(start_time_str)
+    for scan_dir in scan_dirs:
+        if not os.path.exists(scan_dir):
+            continue
+        for root, _, files in os.walk(scan_dir):
+            for file in files:
+                if file.endswith(".md") and not file.startswith("."):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        fm, body = parse_markdown(content)
                         
-                        if dt_start:
-                            # Se l'evento ha data+ora (non solo data) e cade nel window
-                            if len(start_time_str) > 10:  # e.g., longer than YYYY-MM-DD
-                                if window_start <= dt_start <= window_end:
-                                    rel_path = os.path.relpath(filepath, vault_path)
-                                    upcoming.append((rel_path, fm, body))
-                except Exception:
-                    pass
+                        if fm.get("type") in ["calendar_event", "appointment"] and not fm.get("briefed", False):
+                            start_time_str = fm.get("start_time", "")
+                            dt_start = parse_datetime(start_time_str)
+                            
+                            if dt_start:
+                                # Se l'evento ha data+ora (non solo data) e cade nel window
+                                if len(start_time_str) > 10:  # e.g., longer than YYYY-MM-DD
+                                    if window_start <= dt_start <= window_end:
+                                        rel_path = os.path.relpath(filepath, vault_path)
+                                        upcoming.append((rel_path, fm, body))
+                    except Exception:
+                        pass
     return upcoming
 
 async def generate_briefing_text(event_fm: dict, event_body: str, context_notes: list[dict], config: LocalAgentConfig) -> str:
