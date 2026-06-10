@@ -4,7 +4,7 @@ import re
 import asyncio
 import subprocess
 from typing import Optional, List
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, Header, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -14,6 +14,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from engine.tools.vault_tools import get_vault_path, list_unprocessed_raw, search_wiki
 from engine.utils.markdown import parse_markdown
 from engine.query_agent import query_agent_answer
+from engine.watcher import watch_vault_changes
+from engine.tools.mail_idle import start_imap_idle_listeners
 
 # FastMCP Server Import
 try:
@@ -149,13 +151,41 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Avvia lo scheduler in background
     scheduler_task = asyncio.create_task(run_scheduler_loop())
+    
+    # Avvia il file watcher per modifiche locali
+    watcher_task = asyncio.create_task(watch_vault_changes(manager))
+    
+    # Avvia i listener IMAP IDLE per le email
+    idle_tasks = []
+    try:
+        idle_tasks = await start_imap_idle_listeners(manager)
+    except Exception as e:
+        print(f"[DASHBOARD] Errore nell'avvio dei listener IMAP IDLE: {e}", flush=True)
+        
     yield
+    
+    # Cancellazione e pulizia all'arresto
     scheduler_task.cancel()
+    watcher_task.cancel()
+    for task in idle_tasks:
+        task.cancel()
+        
+    # Attesa terminazione
     try:
         await scheduler_task
     except asyncio.CancelledError:
         pass
+    try:
+        await watcher_task
+    except asyncio.CancelledError:
+        pass
+    for task in idle_tasks:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(title="Secondo Cervello - Dashboard", lifespan=lifespan)
 
@@ -405,6 +435,23 @@ async def logs_stream(request: Request):
             manager.unregister_listener(q)
             
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.post("/api/webhook/{source}")
+async def trigger_webhook(source: str, x_webhook_secret: Optional[str] = Header(None)):
+    secret = os.getenv("WEBHOOK_SECRET")
+    if not secret:
+        raise HTTPException(status_code=500, detail="WEBHOOK_SECRET non configurato nel file .env.")
+    if x_webhook_secret != secret:
+        raise HTTPException(status_code=401, detail="Secret non valido o mancante.")
+    
+    valid_sources = ["notion", "drive", "mail", "web", "calendar", "all"]
+    if source not in valid_sources:
+        raise HTTPException(status_code=400, detail=f"Sorgente non valida. Deve essere una tra: {valid_sources}")
+        
+    started = await manager.start(source=source)
+    if started:
+        return {"status": "triggered", "source": source}
+    return JSONResponse(status_code=400, content={"status": "already_running", "active_source": manager.active_source})
 
 # --- MCP Server Integration ---
 if mcp_server is not None:

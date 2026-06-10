@@ -37,3 +37,26 @@ def test_post_schedule_error():
         assert response.status_code == 500
         assert response.json() == {"status": "error_updating"}
         mock_set.assert_called_once_with("12:30")
+
+def test_webhook_no_secret():
+    response = client.post("/api/webhook/notion")
+    assert response.status_code == 401
+
+def test_webhook_wrong_secret():
+    response = client.post("/api/webhook/notion", headers={"x-webhook-secret": "wrong"})
+    assert response.status_code == 401
+
+@patch.dict("os.environ", {"WEBHOOK_SECRET": "testsecret"})
+def test_webhook_invalid_source():
+    response = client.post("/api/webhook/invalid_src", headers={"x-webhook-secret": "testsecret"})
+    assert response.status_code == 400
+
+@patch.dict("os.environ", {"WEBHOOK_SECRET": "testsecret"})
+@patch("engine.dashboard.manager.start")
+def test_webhook_success(mock_start):
+    mock_start.return_value = True
+    response = client.post("/api/webhook/notion", headers={"x-webhook-secret": "testsecret"})
+    assert response.status_code == 200
+    assert response.json() == {"status": "triggered", "source": "notion"}
+    mock_start.assert_called_once_with(source="notion")
+
