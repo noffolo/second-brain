@@ -17,7 +17,7 @@ def test_send_email_starttls(mock_smtp_class, mock_load_dotenv):
     mock_smtp = MagicMock()
     mock_smtp_class.return_value = mock_smtp
     
-    body = "Questo è un **test** in grassetto.\n- Elemento 1\n- Elemento 2"
+    body = "Questo è un **test** in grassetto.\n\n- Elemento 1\n- Elemento 2"
     success = send_email("Test Subject", body)
     
     assert success is True
