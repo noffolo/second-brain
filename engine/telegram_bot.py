@@ -301,21 +301,7 @@ def split_message(text: str, chunk_size: int = 4000) -> list[str]:
         chunks.append(text)
     return chunks
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_authorized(update):
-        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
-        return
-    user_message = update.message.text
-    chat_id = update.effective_chat.id
-    
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    
-    # Comandi speciali di reset contesto (opzionale ma utile)
-    if user_message.lower().strip() == "/clear":
-        chat_memory.clear_history(chat_id)
-        await update.message.reply_text("Memoria della conversazione azzerata.")
-        return
-        
+async def process_text_query(user_message: str, chat_id: int, update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Aggiungi il messaggio dell'utente alla memoria
         chat_memory.add_message(chat_id, "user", user_message)
@@ -341,6 +327,69 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Errore durante l'elaborazione della domanda: {e}")
 
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
+        return
+    user_message = update.message.text
+    chat_id = update.effective_chat.id
+    
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    
+    # Comandi speciali di reset contesto (opzionale ma utile)
+    if user_message.lower().strip() == "/clear":
+        chat_memory.clear_history(chat_id)
+        await update.message.reply_text("Memoria della conversazione azzerata.")
+        return
+        
+    await process_text_query(user_message, chat_id, update, context)
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
+        return
+    chat_id = update.effective_chat.id
+    
+    # Mostra l'indicazione che sta registrando/scrivendo
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    
+    try:
+        voice = update.message.voice
+        if not voice:
+            await update.message.reply_text("Errore: nessun messaggio vocale rilevato.")
+            return
+            
+        voice_file = await context.bot.get_file(voice.file_id)
+        
+        import io
+        import base64
+        from engine.utils.llm_fallback import transcribe_audio_via_gemini
+        
+        out = io.BytesIO()
+        await voice_file.download_to_memory(out)
+        audio_bytes = out.getvalue()
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+        
+        # Inviamo un messaggio temporaneo per dare feedback che la trascrizione è iniziata
+        status_msg = await update.message.reply_text("🎤 _Trascrizione del vocale in corso..._", parse_mode="Markdown")
+        
+        try:
+            transcription = await transcribe_audio_via_gemini(audio_base64, mime_type="audio/ogg")
+        except Exception as trans_err:
+            await status_msg.edit_text(f"❌ Errore durante la trascrizione del vocale: {trans_err}")
+            return
+            
+        # Aggiorna il messaggio temporaneo con la trascrizione
+        await status_msg.edit_text(f"🎤 *Trascrizione vocale:*\n_{transcription}_", parse_mode="Markdown")
+        
+        # Processa la query testuale
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        await process_text_query(transcription, chat_id, update, context)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Errore durante l'elaborazione del vocale: {e}")
+
+
 def main():
     if not TELEGRAM_AVAILABLE:
         print("Errore: Libreria 'python-telegram-bot' non installata.")
@@ -360,6 +409,7 @@ def main():
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
     application.run_polling()
 

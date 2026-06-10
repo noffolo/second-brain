@@ -493,6 +493,140 @@
             background: var(--accent-purple);
             border-radius: 3px;
         }
+
+        /* Stili per le nuove funzionalità: pulsante copia, microfono, upload */
+        .message {
+            position: relative;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 5px 7px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s, background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .message:hover .copy-btn {
+            opacity: 1;
+        }
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        .copy-btn svg {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: #fff;
+            stroke-width: 2;
+        }
+        
+        .input-action-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-secondary);
+            border-radius: 12px;
+            width: 56px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+        .input-action-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        .input-action-btn svg {
+            width: 22px;
+            height: 22px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        
+        /* Mic active / pulsing state */
+        .input-action-btn.mic-active {
+            background: #ef233c;
+            border-color: #ef233c;
+            color: #fff;
+            animation: pulse-red 1.5s infinite;
+        }
+        @keyframes pulse-red {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 35, 60, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(239, 35, 60, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 35, 60, 0); }
+        }
+        
+        /* Chips per la coda dei file */
+        .upload-chip {
+            background: rgba(0, 245, 212, 0.08);
+            border: 1px solid rgba(0, 245, 212, 0.3);
+            color: var(--accent-cyan);
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+        .upload-chip:hover {
+            background: rgba(0, 245, 212, 0.15);
+            border-color: var(--accent-cyan);
+        }
+        .upload-chip-remove {
+            cursor: pointer;
+            font-weight: bold;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            line-height: 1;
+        }
+        .upload-chip-remove:hover {
+            color: #ff6b6b;
+        }
+        
+        /* Dropdown menu per upload */
+        .upload-dropdown {
+            position: relative;
+        }
+        .upload-dropdown-menu {
+            position: absolute;
+            bottom: 70px;
+            left: 0;
+            background: rgba(20, 24, 33, 0.95);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+            padding: 8px 0;
+            min-width: 160px;
+            z-index: 100;
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+        .upload-dropdown-item {
+            padding: 10px 16px;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 1rem;
+        }
+        .upload-dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--accent-cyan);
+        }
     </style>
 </head>
 <body>
@@ -504,13 +638,30 @@
 
     <div id="chat-panel">
         <div class="chat-messages" id="chat-messages">
-            <div class="message bot">
-                Ciao! Sono il tuo assistente. Il mio grafo delle conoscenze è caricato qui a fianco. Chiedimi qualcosa!
-            </div>
+            <!-- I messaggi, incluso quello iniziale, verranno aggiunti via JavaScript per integrare il tasto copia su ciascuno -->
         </div>
+        
+        <!-- Contenitore della coda dei file pronti per l'upload -->
+        <div id="upload-queue-container" style="display:none; padding: 12px 30px; background: rgba(255,255,255,0.02); border-top: 1px solid var(--panel-border); display:flex; flex-wrap:wrap; gap:10px; border-bottom: 1px solid var(--panel-border);"></div>
+        
         <div class="chat-input-container">
             <form class="chat-form" id="chat-form">
-                <input type="text" id="chat-input" class="chat-input" placeholder="Cerca nel tuo secondo cervello..." autocomplete="off" required>
+                <!-- Selettori file nascosti -->
+                <input type="file" id="file-input" style="display:none;" multiple>
+                <input type="file" id="dir-input" style="display:none;" webkitdirectory directory multiple>
+                
+                <!-- Pulsante trigger per menu upload -->
+                <button type="button" id="upload-trigger-btn" class="input-action-btn" title="Carica file o cartella">
+                    <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+                
+                <input type="text" id="chat-input" class="chat-input" placeholder="Chiedi al Secondo Cervello o trascina file..." autocomplete="off">
+                
+                <!-- Pulsante dettatura vocale -->
+                <button type="button" id="mic-btn" class="input-action-btn" title="Dettatura vocale">
+                    <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                </button>
+                
                 <button type="submit" id="chat-submit" class="chat-submit">Invia</button>
             </form>
         </div>
@@ -867,34 +1018,231 @@
         const chatSubmit = document.getElementById('chat-submit');
         let chatHistory = [];
 
+        // --- Gestione della Coda Upload ---
+        let fileQueue = [];
+        const uploadDropdownBtn = document.getElementById('upload-trigger-btn');
+        const fileInput = document.getElementById('file-input');
+        const dirInput = document.getElementById('dir-input');
+        const queueContainer = document.getElementById('upload-queue-container');
+
+        // Crea il menu a discesa per la scelta upload
+        const dropdownWrapper = document.createElement('div');
+        dropdownWrapper.className = 'upload-dropdown';
+        uploadDropdownBtn.parentNode.insertBefore(dropdownWrapper, uploadDropdownBtn);
+        dropdownWrapper.appendChild(uploadDropdownBtn);
+
+        const dropdownMenu = document.createElement('div');
+        dropdownMenu.className = 'upload-dropdown-menu';
+        dropdownMenu.innerHTML = `
+            <div class="upload-dropdown-item" id="opt-upload-file">📄 Carica File</div>
+            <div class="upload-dropdown-item" id="opt-upload-dir">📁 Carica Cartella</div>
+        `;
+        dropdownWrapper.appendChild(dropdownMenu);
+
+        // Toggle menu dropdown
+        uploadDropdownBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const isVisible = dropdownMenu.style.display === 'block';
+            dropdownMenu.style.display = isVisible ? 'none' : 'block';
+        });
+
+        document.addEventListener('click', () => {
+            dropdownMenu.style.display = 'none';
+        });
+
+        document.getElementById('opt-upload-file').addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        document.getElementById('opt-upload-dir').addEventListener('click', () => {
+            dirInput.click();
+        });
+
+        fileInput.addEventListener('change', handleFileSelection);
+        dirInput.addEventListener('change', handleFileSelection);
+
+        function handleFileSelection(e) {
+            const selectedFiles = Array.from(e.target.files);
+            selectedFiles.forEach(file => {
+                const exists = fileQueue.some(f => f.file.name === file.name && f.file.size === file.size);
+                if (!exists) {
+                    const relPath = file.webkitRelativePath || file.name;
+                    fileQueue.push({ file: file, path: relPath });
+                }
+            });
+            fileInput.value = '';
+            dirInput.value = '';
+            renderQueue();
+        }
+
+        function renderQueue() {
+            queueContainer.innerHTML = '';
+            if (fileQueue.length === 0) {
+                queueContainer.style.display = 'none';
+                return;
+            }
+            queueContainer.style.display = 'flex';
+            fileQueue.forEach((item, index) => {
+                const chip = document.createElement('div');
+                chip.className = 'upload-chip';
+                chip.title = item.path;
+                chip.innerHTML = `
+                    <span>${item.file.name}</span>
+                    <span class="upload-chip-remove" data-index="${index}">&times;</span>
+                `;
+                queueContainer.appendChild(chip);
+            });
+            document.querySelectorAll('.upload-chip-remove').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const index = parseInt(e.target.getAttribute('data-index'));
+                    fileQueue.splice(index, 1);
+                    renderQueue();
+                });
+            });
+        }
+
+        // --- Gestione Dettatura Vocale (Speech-to-Text) ---
+        let recognition = null;
+        let isListening = false;
+        const micBtn = document.getElementById('mic-btn');
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'it-IT';
+            
+            recognition.onstart = () => {
+                isListening = true;
+                micBtn.classList.add('mic-active');
+                micBtn.title = "Ferma dettatura";
+            };
+            
+            recognition.onend = () => {
+                isListening = false;
+                micBtn.classList.remove('mic-active');
+                micBtn.title = "Dettatura vocale";
+            };
+            
+            recognition.onerror = (e) => {
+                console.error("Speech Recognition Error:", e);
+                recognition.stop();
+            };
+            
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                if (finalTranscript) {
+                    const space = chatInput.value && !chatInput.value.endsWith(' ') ? ' ' : '';
+                    chatInput.value += space + finalTranscript;
+                }
+            };
+            
+            micBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (isListening) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            });
+        } else {
+            micBtn.style.opacity = '0.5';
+            micBtn.style.cursor = 'not-allowed';
+            micBtn.title = "Dettatura vocale non supportata dal browser";
+        }
+
+        // --- Gestione Invio Form ---
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const message = chatInput.value.trim();
-            if (!message) return;
+            const hasFiles = fileQueue.length > 0;
+            
+            if (!message && !hasFiles) return;
 
-            // Add User message
+            chatSubmit.disabled = true;
+            
+            // Se c'è SpeechRecognition attivo, fermalo prima di inviare
+            if (isListening && recognition) {
+                recognition.stop();
+            }
+
+            // 1. Gestione Upload File
+            if (hasFiles) {
+                const uploadId = 'upload-' + Date.now();
+                appendMessage('user', `Caricamento di ${fileQueue.length} file...`);
+                appendMessage('bot', '<span class="loading-dots">Caricamento e indicizzazione file in corso</span>', uploadId);
+                
+                try {
+                    const formData = new FormData();
+                    const paths = [];
+                    fileQueue.forEach(item => {
+                        formData.append('files', item.file);
+                        paths.push(item.path);
+                    });
+                    formData.append('paths', JSON.stringify(paths));
+                    
+                    const uploadRes = await fetch('/api/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const uploadData = await uploadRes.json();
+                    const uploadLoader = document.getElementById(uploadId);
+                    if (uploadLoader) uploadLoader.remove();
+                    
+                    if (uploadRes.ok) {
+                        appendMessage('bot', `✅ **${fileQueue.length} file** caricati ed assimilati con successo! L'ingestione è avviata in background.`);
+                        fileQueue = [];
+                        renderQueue();
+                    } else {
+                        appendMessage('bot', `❌ Errore durante l'upload: ${uploadData.message || 'Errore sconosciuto'}`);
+                        chatSubmit.disabled = false;
+                        return;
+                    }
+                } catch (uploadErr) {
+                    const uploadLoader = document.getElementById(uploadId);
+                    if (uploadLoader) uploadLoader.remove();
+                    appendMessage('bot', `❌ Errore di connessione durante il caricamento: ${uploadErr.message}`);
+                    chatSubmit.disabled = false;
+                    return;
+                }
+            }
+
+            // Se non c'è testo nel messaggio, fermati qui dopo l'upload
+            if (!message) {
+                chatSubmit.disabled = false;
+                chatInput.focus();
+                return;
+            }
+
+            // 2. Invio messaggio di testo standard alla chat
             appendMessage('user', message);
             chatInput.value = '';
-            chatSubmit.disabled = true;
 
-            // Add Loading Bot message
             const loadingId = 'loading-' + Date.now();
             appendMessage('bot', '<span class="loading-dots">Sto pensando</span>', loadingId);
 
-            // Rimodulazione e pre-evidenziazione immediata delle parole chiave
             const relevantNodes = findRelevantNodes(message);
             highlightNodes(relevantNodes, true);
 
-            // Attiva auto-rotazione nativa e fluida su OrbitControls per la fase "thinking"
             if (Graph && typeof Graph.controls === 'function') {
                 try {
                     const controls = Graph.controls();
                     if (controls) {
                         if (is3D) {
                             controls.autoRotate = true;
-                            controls.autoRotateSpeed = 8.0; // Rotazione hardware-accelerata a 60 FPS
+                            controls.autoRotateSpeed = 8.0;
 
-                            // Imposta il target di rotazione sul baricentro dei nodi di interesse (primari + secondari)
                             let targetX = 0, targetY = 0, targetZ = 0;
                             const activeNodes = graphData.nodes.filter(n => window.primaryActiveNodes.has(n.id) || window.secondaryActiveNodes.has(n.id));
                             if (activeNodes.length > 0) {
@@ -910,13 +1258,12 @@
                                 controls.target.set(targetX, targetY, targetZ);
                             }
                         }
-                        // Riscalda leggermente la simulazione fisica una sola volta per assestare l'espansione dei nodi attivi
                         if (typeof Graph.d3ReheatSimulation === 'function') {
                             Graph.d3ReheatSimulation();
                         }
                     }
                 } catch (camErr) {
-                    console.warn("Impossibile far orbitare la camera nativamente:", camErr);
+                    console.warn("Impossibile far orbitare la camera:", camErr);
                 }
             }
 
@@ -927,7 +1274,6 @@
                     body: JSON.stringify({ message: message, history: chatHistory })
                 });
 
-                // Dopo aver inviato, aggiungiamo il messaggio utente alla history
                 chatHistory.push({ role: 'user', content: message });
 
                 const data = await res.json();
@@ -938,12 +1284,10 @@
                 if (res.ok) {
                     chatHistory.push({ role: 'model', content: data.answer });
                     
-                    // Mantieni max 14 messaggi (7 turni)
                     if (chatHistory.length > 14) {
                         chatHistory = chatHistory.slice(chatHistory.length - 14);
                     }
 
-                    // Parser sicuro di markdown + wikilink
                     let parsedContent = data.answer;
                     if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
                         parsedContent = marked.parse(data.answer);
@@ -953,17 +1297,15 @@
                     parsedContent = parseWikilinks(parsedContent);
                     appendMessage('bot', parsedContent);
                     
-                    // Disattiva stato thinking e applica evidenziazione e zoom finale sui nodi citati
-                    setAutoRotateState(0.4); // Ripristina rotazione lenta di idle
+                    setAutoRotateState(0.4);
                     if (data.cited_nodes && data.cited_nodes.length > 0) {
                         highlightNodes(data.cited_nodes, false);
                     } else {
-                        // Mantieni l'evidenziazione di input se l'AI non cita nodi specifici, spegnendo l'attività elettrica di thinking
                         highlightNodes(relevantNodes, false);
                     }
                 } else {
                     appendMessage('bot', `Errore: ${data.error}`);
-                    chatHistory.pop(); // Rimuovi il messaggio utente se la chiamata fallisce
+                    chatHistory.pop();
                 }
 
             } catch (err) {
@@ -974,21 +1316,53 @@
                     chatHistory.pop();
                 }
             } finally {
-                // Ripristina sempre la rotazione lenta di idle al termine (anche in caso di errore)
                 setAutoRotateState(0.4);
                 chatSubmit.disabled = false;
                 chatInput.focus();
             }
         });
 
+        // --- Funzione appendMessage potenziata con pulsante Copia ---
         function appendMessage(sender, content, id = null) {
             const div = document.createElement('div');
             div.className = `message ${sender}`;
             if (id) div.id = id;
-            div.innerHTML = content;
+            
+            // Contenitore per il testo del messaggio
+            const textDiv = document.createElement('div');
+            textDiv.innerHTML = content;
+            div.appendChild(textDiv);
+            
+            // Bottone di copia (non lo mostriamo sulle bolle di caricamento temporanee)
+            if (!content.includes('loading-dots')) {
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.title = 'Copia negli appunti';
+                copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+                
+                copyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const rawText = textDiv.innerText || textDiv.textContent;
+                    navigator.clipboard.writeText(rawText).then(() => {
+                        copyBtn.innerHTML = `<svg viewBox="0 0 24 24" style="stroke: var(--accent-cyan)"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                        setTimeout(() => {
+                            copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Errore copia:', err);
+                    });
+                });
+                div.appendChild(copyBtn);
+            }
+            
             chatMessages.appendChild(div);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+
+        // Messaggio iniziale inserito via JS all'avvio per integrare la copia
+        window.addEventListener('DOMContentLoaded', () => {
+            appendMessage('bot', 'Ciao! Sono il tuo assistente. Il mio grafo delle conoscenze è caricato qui a fianco. Chiedimi qualcosa!');
+        });
 
         // --- Fallback Markdown Parser (per grassetti ed elementi base se marked CDN fallisce) ---
         function fallbackMarkdown(text) {

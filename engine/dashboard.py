@@ -4,7 +4,7 @@ import re
 import asyncio
 import subprocess
 from typing import Optional, List
-from fastapi import FastAPI, Request, Response, Header, HTTPException
+from fastapi import FastAPI, Request, Response, Header, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -489,6 +489,55 @@ async def chat_endpoint(req: ChatRequest):
         return {"answer": ans, "cited_nodes": cited}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/upload")
+async def upload_files(
+    files: List[UploadFile] = File(...),
+    paths: Optional[str] = Form(None)
+):
+    import shutil
+    import json
+    
+    target_dir = os.path.join(get_vault_path(), "raw", "manual")
+    os.makedirs(target_dir, exist_ok=True)
+    
+    relative_paths = []
+    if paths:
+        try:
+            relative_paths = json.loads(paths)
+        except Exception:
+            pass
+            
+    saved_files = []
+    for idx, file in enumerate(files):
+        rel_path = None
+        if relative_paths and idx < len(relative_paths):
+            rel_path = relative_paths[idx]
+            
+        if rel_path:
+            cleaned_rel = os.path.normpath(rel_path).lstrip(os.path.sep)
+            if cleaned_rel.startswith("..") or os.path.isabs(cleaned_rel):
+                cleaned_rel = os.path.basename(cleaned_rel)
+            dest_path = os.path.join(target_dir, cleaned_rel)
+        else:
+            dest_path = os.path.join(target_dir, os.path.basename(file.filename))
+            
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        
+        with open(dest_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        saved_files.append(dest_path)
+        
+    # Avvia l'ingestore in background per elaborare i file manuali
+    await manager.start(source="manual")
+    
+    return {
+        "status": "success",
+        "message": f"Caricati {len(saved_files)} file. Ingestione avviata.",
+        "files": [os.path.basename(f) for f in saved_files]
+    }
+
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():

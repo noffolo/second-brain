@@ -410,3 +410,71 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
  
     error_summary = " | ".join(errors)
     raise RuntimeError(f"Tutti i provider di fallback sono falliti o non configurati. Dettagli: {error_summary}")
+
+
+async def transcribe_audio_via_gemini(audio_base64: str, mime_type: str = "audio/ogg") -> str:
+    """
+    Invia un file audio codificato in base64 a Gemini per la trascrizione.
+    Tenta prima con gemini-2.5-flash e i modelli in cascata.
+    """
+    import os
+    import json
+    import urllib.request
+    import urllib.error
+    
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not gemini_key or gemini_key == "dummy-key" or gemini_key.startswith("YOUR_"):
+        raise ValueError("GEMINI_API_KEY non impostata o non valida. Impossibile trascrivere il vocale.")
+
+    # Modelli multimodali da tentare in cascata
+    models = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    
+    errors = []
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": audio_base64
+                            }
+                        },
+                        {
+                            "text": (
+                                "Trascrivi fedelmente questo audio in lingua italiana. "
+                                "Restituisci solo ed esclusivamente la trascrizione letterale dell'audio, "
+                                "senza alcuna introduzione, commento, formattazione aggiuntiva, punteggiatura extra non pronunciata o spiegazione."
+                            )
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        
+        loop = asyncio.get_running_loop()
+        try:
+            print(f"[Telegram Audio] Tentativo di trascrizione audio con {model}...")
+            def do_request():
+                with urllib.request.urlopen(req, context=ssl_context, timeout=60) as response:
+                    return response.read().decode("utf-8")
+                    
+            resp_body = await loop.run_in_executor(None, do_request)
+            resp_json = json.loads(resp_body)
+            transcription = resp_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+            if transcription:
+                return transcription
+            else:
+                raise RuntimeError("Il modello ha restituito una risposta vuota.")
+        except Exception as e:
+            errors.append(f"{model}: {e}")
+            print(f"[Telegram Audio] Errore trascrizione con {model}: {e}")
+            
+    raise RuntimeError(f"Tutti i modelli per la trascrizione sono falliti: {', '.join(errors)}")
+
