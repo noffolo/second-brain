@@ -321,19 +321,24 @@ def list_unprocessed_raw() -> list[str]:
                     
     # Ordinamento per priorità per evitare blocchi causati da dump storici enormi
     def get_priority(path: str) -> int:
-        if path.startswith("raw/manual/"):
+        path_norm = path.replace("\\", "/")
+        if path_norm.startswith("raw/manual/"):
             return 1
-        if path.startswith("raw/calendar/"):
+        if path_norm.startswith("raw/whatsapp/"):
             return 2
-        if path.startswith("Meetings/"):
+        if path_norm.startswith("Meetings/"):
             return 3
-        if path.startswith("raw/notion/"):
+        if path_norm.startswith("raw/mail/"):
             return 4
-        if path.startswith("raw/mail/"):
+        if path_norm.startswith("raw/web_articles/"):
             return 5
-        if path.startswith("raw/web_articles/"):
-            return 6
-        if "raw/archive_v" in path:  # Archivi storici
+        if path_norm.startswith("raw/calendar/"):
+            return 20
+        if path_norm.startswith("raw/notion/"):
+            return 21
+        if path_norm.startswith("raw/tasks/"):
+            return 22
+        if "raw/archive_v" in path_norm:  # Archivi storici
             return 100
         return 10  # Default per altro
         
