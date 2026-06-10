@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secondo Cervello — Presentazione Clienti</title>
+  
+  <!-- Premium Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    /* Reset & Base variables */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    :root {
+      --font-header: 'Space Grotesk', sans-serif;
+      --font-body: 'Plus Jakarta Sans', sans-serif;
+      --color-brand: #ff3300; /* FF3300 Orange-Red */
+      --color-black: #000000;
+      --color-white: #ffffff;
+      --color-gray-dark: #121212;
+      --color-gray-light: #f5f5f7;
+      --color-gray-muted: #86868b;
+      --transition-speed: 0.5s;
+    }
+    
+    body {
+      background-color: var(--color-black);
+      color: var(--color-white);
+      font-family: var(--font-body);
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    /* Responsive 16:9 Aspect Ratio Letterbox Container */
+    .presentation-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 177.78vh; /* 16:9 constraint based on viewport height */
+      max-height: 56.25vw; /* 16:9 constraint based on viewport width */
+      aspect-ratio: 16 / 9;
+      background-color: var(--color-black);
+      box-shadow: 0 20px 80px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    /* Slides container */
+    .slides-wrapper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    
+    /* Individual Slide */
+    .slide {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      padding: 6% 8%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.98) translateY(10px);
+      transition: opacity var(--transition-speed) ease-in-out, 
+                  transform var(--transition-speed) cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 1;
+    }
+    
+    .slide.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1) translateY(0);
+      z-index: 2;
+    }
+    
+    /* Slide Themes */
+    .slide.theme-dark {
+      background-color: var(--color-black);
+      color: var(--color-white);
+    }
+    
+    .slide.theme-light {
+      background-color: var(--color-white);
+      color: var(--color-black);
+    }
+    
+    /* Title slide specific styling */
+    .slide-title-layout {
+      justify-content: center;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    
+    /* Typography */
+    h1, h2, h3 {
+      font-family: var(--font-header);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+    
+    /* Slide Title */
+    .slide h2.slide-heading {
+      font-size: 3.2vw;
+      margin-bottom: 2vh;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .theme-light h2.slide-heading {
+      color: var(--color-black);
+    }
+    
+    .theme-dark h2.slide-heading {
+      color: var(--color-white);
+    }
+    
+    /* Slide Subheading or Accent */
+    .accent-bar {
+      width: 60px;
+      height: 6px;
+      background-color: var(--color-brand);
+      margin-bottom: 4vh;
+    }
+    
+    /* Content Layouts */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 5%;
+      height: 100%;
+      align-items: start;
+    }
+    
+    .grid-3col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 3%;
+      height: 100%;
+      align-items: start;
+    }
+    
+    /* Text Blocks */
+    p {
+      font-size: 1.4vw;
+      line-height: 1.5;
+      color: inherit;
+      opacity: 0.85;
+      margin-bottom: 2vh;
+    }
+    
+    .theme-light p {
+      color: #333333;
+    }
+    
+    .theme-dark p {
+      color: #dddddd;
+    }
+    
+    ul {
+      list-style-type: none;
+    }
+    
+    li {
+      font-size: 1.3vw;
+      line-height: 1.5;
+      margin-bottom: 2vh;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    
+    /* Bullet points */
+    li::before {
+      content: "■";
+      color: var(--color-brand);
+      font-size: 1vw;
+      margin-top: 0.2vw;
+    }
+    
+    /* Highlight & Brutalist Elements */
+    .highlight {
+      color: var(--color-brand) !important;
+      font-weight: 700;
+    }
+    
+    .brand-large-title {
+      font-size: 6.5vw;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: var(--color-white);
+      line-height: 0.9;
+    }
+    
+    .brand-large-subtitle {
+      font-size: 1.8vw;
+      font-weight: 500;
+      color: var(--color-gray-muted);
+      max-width: 80%;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+    
+    /* Feature Card Block */
+    .feature-card {
+      padding: 3vh;
+      border: 1px solid var(--color-gray-muted);
+      border-radius: 4px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    
+    .theme-light .feature-card {
+      background-color: var(--color-gray-light);
+      border-color: #d2d2d7;
+    }
+    
+    .theme-dark .feature-card {
+      background-color: var(--color-gray-dark);
+      border-color: #2c2c2e;
+    }
+    
+    .feature-card h3 {
+      font-size: 1.6vw;
+      margin-bottom: 1.5vh;
+      text-transform: uppercase;
+    }
+    
+    .feature-card p {
+      font-size: 1.1vw;
+      margin-bottom: 0;
+    }
+    
+    /* Bottom bar branding */
+    .slide-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid rgba(128, 128, 128, 0.2);
+      padding-top: 2vh;
+      font-size: 0.9vw;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--color-gray-muted);
+    }
+    
+    .theme-light .slide-footer {
+      border-top-color: #e5e5ea;
+    }
+    
+    .footer-brand {
+      font-family: var(--font-header);
+      font-weight: 700;
+      color: var(--color-brand);
+    }
+    
+    /* Interactive Navigation Controls */
+    .nav-controls {
+      position: absolute;
+      bottom: 2vh;
+      right: 4%;
+      display: flex;
+      gap: 15px;
+      z-index: 10;
+      align-items: center;
+    }
+    
+    .nav-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--color-gray-muted);
+      background-color: transparent;
+      color: var(--color-white);
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 16px;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    
+    .nav-btn:hover {
+      border-color: var(--color-brand);
+      background-color: var(--color-brand);
+      color: var(--color-white);
+    }
+    
+    /* Dots indicator */
+    .dots-container {
+      position: absolute;
+      bottom: 3.2vh;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+    }
+    
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--color-gray-muted);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .dot.active {
+      background-color: var(--color-brand);
+      width: 24px;
+      border-radius: 4px;
+    }
+    
+    .theme-light-controls .nav-btn {
+      color: var(--color-black);
+      border-color: #c7c7cc;
+    }
+    .theme-light-controls .nav-btn:hover {
+      color: var(--color-white);
+      border-color: var(--color-brand);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="presentation-container" id="presentationContainer">
+    <div class="slides-wrapper">
+      
+      <!-- Slide 1: Cover (Dark) -->
+      <div class="slide theme-dark slide-title-layout active" data-slide-index="0">
+        <div>
+          <div class="brand-large-title"><span class="highlight">SECONDO</span><br>CERVELLO</div>
+          <div class="brand-large-subtitle">L'estensione della tua intelligenza collettiva.<br>Strategia, Design e AI in un ecosistema privato ed integrato.</div>
+        </div>
+        <div style="width: 100%;" class="slide-footer">
+          <span>Presentazione di Prodotto</span>
+          <span class="footer-brand">FF3300 — Strategy + Design</span>
+        </div>
+      </div>
+      
+      <!-- Slide 2: Il Problema (Light) -->
+      <div class="slide theme-light" data-slide-index="1">
+        <div>
+          <h2 class="slide-heading">Il Sovraccarico Informativo</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p class="highlight" style="font-size: 1.8vw; font-weight: 600; line-height: 1.3; margin-bottom: 3vh;">
+                La conoscenza aziendale e di team è sempre più frammentata, volatile e disorganizzata.
+              </p>
+              <ul>
+                <li><strong>Silos Informativi</strong>: Informazioni sparse in chat, Notion, client email, e verbali dimenticati.</li>
+                <li><strong>Template Fatigue & Canva standard</strong>: Grafiche piatte e perdita della brand identity istituzionale.</li>
+                <li><strong>Allucinazioni delle AI standard</strong>: I modelli commerciali inventano dati non possedendo il contesto aziendale reale.</li>
+              </ul>
+            </div>
+            <div style="height: 100%; display: flex; align-items: center; justify-content: center; background: var(--color-gray-light); border-left: 4px solid var(--color-brand); padding: 4%; border-radius: 4px;">
+              <p style="font-size: 1.6vw; font-weight: 500; font-family: var(--font-header); text-transform: uppercase; line-height: 1.3; margin-bottom: 0;">
+                "L'efficienza operativa si perde quando recuperare un'informazione passata richiede più tempo che ricrearla da zero."
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>02 / 12 — Lo Scenario</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 3: La Soluzione (Dark) -->
+      <div class="slide theme-dark" data-slide-index="2">
+        <div>
+          <h2 class="slide-heading">La Soluzione</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-3col">
+            <div class="feature-card">
+              <h3>Zero Lock-In</h3>
+              <p>Tutti i dati risiedono in file Markdown semplici localizzati sul tuo computer. Pieno possesso e portabilità delle informazioni senza canoni o piattaforme vincolanti.</p>
+            </div>
+            <div class="feature-card" style="border-color: var(--color-brand);">
+              <h3>Grafo Semantico</h3>
+              <p class="highlight">Unificazione logica di concetti, progetti, relazioni CRM e journal giornalieri. L'informazione si muove in una rete di link semantici, non in cartelle rigide.</p>
+            </div>
+            <div class="feature-card">
+              <h3>AI Privata</h3>
+              <p>L'AI non possiede la tua conoscenza: la consulta a livello locale. Autenticazione Vertex AI (senza chiavi visibili) o Ollama locale disconnesso per la massima sicurezza.</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>03 / 12 — Il Progetto</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 4: Architettura a Tre Livelli (Light) -->
+      <div class="slide theme-light" data-slide-index="3">
+        <div>
+          <h2 class="slide-heading">L'Architettura Ibrida a Tre Livelli</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p style="margin-bottom: 3vh;">Una pipeline che separa rigidamente la comprensione probabilistica dell'AI dalla rigidità formale del brand.</p>
+              <ul>
+                <li><strong>Livello 1: Compilatore Semantico (LLM)</strong> ➔ Traduce i prompt descrittivi in linguaggio naturale in una struttura dati intermedia JSON.</li>
+                <li><strong>Livello 2: Middleware Deterministico (Python/PHP)</strong> ➔ Applica le regole cromatiche fisse del brand e garantisce il contrasto tipografico WCAG.</li>
+                <li><strong>Livello 3: Headless Rendering Engine (Puppeteer)</strong> ➔ Renderizza l'immagine in background via Chromium, azzerando le difformità grafiche.</li>
+              </ul>
+            </div>
+            <div class="feature-card" style="background: var(--color-gray-light); border-color: var(--color-brand); border-width: 2px;">
+              <h3 style="color: var(--color-brand)">La garanzia del brand</h3>
+              <p style="font-size: 1.2vw; line-height: 1.4;">"Nessuna allucinazione tipografica. I loghi, i colori, i margini ed i contrasti WCAG sono imposti da algoritmi matematici deterministici, non lasciati al caso del modello generativo."</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>04 / 12 — Tecnologia</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 5: Notion Sync (Dark) -->
+      <div class="slide theme-dark" data-slide-index="4">
+        <div>
+          <h2 class="slide-heading">Sincronizzazione Notion Bidirezionale</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p class="highlight" style="font-size: 1.6vw; margin-bottom: 3vh;">
+                Integrazione profonda con gli strumenti di lavoro quotidiani.
+              </p>
+              <ul>
+                <li><strong>Database Mapping automatico</strong>: Il wizard interattivo trova e associa automaticamente i database per te.</li>
+                <li><strong>Synced Databases supportati</strong>: Superamento nativo dei limiti API Notion per database specchiati da fonti esterne (Google Calendar, ecc.).</li>
+                <li><strong>Sync Bidirezionale dei Task</strong>: Le note e i compiti modificati in locale si aggiornano automaticamente su Notion e viceversa.</li>
+              </ul>
+            </div>
+            <div style="background-color: var(--color-gray-dark); padding: 4%; border: 1px dashed var(--color-brand); border-radius: 4px; display: flex; flex-direction: column; justify-content: center; height: 100%;">
+              <h4 style="font-family: var(--font-header); font-size: 1.4vw; color: var(--color-brand); text-transform: uppercase; margin-bottom: 2vh;">Sincronizzazione Trasparente</h4>
+              <p style="font-size: 1.1vw; margin-bottom: 0;">"Il tuo team continua a lavorare sulle tabelle Notion che conosce. Il Secondo Cervello assorbe la conoscenza in background senza cambiare le vostre abitudini."</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>05 / 12 — Notion Integration</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 6: Aruba Mail & IMAP IDLE (Light) -->
+      <div class="slide theme-light" data-slide-index="5">
+        <div>
+          <h2 class="slide-heading">Mail Aruba &amp; Reattività</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p style="font-size: 1.6vw; line-height: 1.3; margin-bottom: 3vh;" class="highlight">
+                Il Secondo Cervello reagisce all'istante a quello che succede nel mondo reale.
+              </p>
+              <ul>
+                <li><strong>Protocollo IMAP IDLE</strong>: Nessun ritardo o polling periodico. La casella Aruba e il daemon instaurano una connessione aperta permanente.</li>
+                <li><strong>Ingestione immediata</strong>: L'arrivo di un'email innesca immediatamente il processo di sync e la catalogazione nel Vault.</li>
+                <li><strong>Auto-Refresh</strong>: Gestione asincrona dei timeout per mantenere la pipeline attiva 24/7 senza interventi manuali.</li>
+              </ul>
+            </div>
+            <div style="height: 100%; display: flex; align-items: center; justify-content: center; background: var(--color-gray-light); border-left: 4px solid var(--color-black); padding: 4%; border-radius: 4px;">
+              <p style="font-size: 1.4vw; font-weight: 500; font-family: var(--font-header); text-transform: uppercase; line-height: 1.3; margin-bottom: 0;">
+                Ricevi un documento o un verbale via mail ➔ Il sistema lo intercetta ➔ Lo inserisce nel database ➔ Ti prepara per il briefing.
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>06 / 12 — Aruba Mail Integration</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 7: Briefing Daemon (Dark) -->
+      <div class="slide theme-dark" data-slide-index="6">
+        <div>
+          <h2 class="slide-heading">Briefing Daemon Pre-Evento</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p class="highlight" style="font-size: 1.6vw; margin-bottom: 3vh;">
+                Il tuo assistente personale ti prepara a ogni appuntamento della giornata.
+              </p>
+              <ul>
+                <li><strong>Intercettazione Attiva</strong>: Monitora gli eventi futuri nel raggio di 15 minuti.</li>
+                <li><strong>Raccolta dei Dati</strong>: Estrae dal vault e dal CRM i profili dei partecipanti, i verbali dei vecchi meeting e le note collegate.</li>
+                <li><strong>Email Premium HTML</strong>: Invia un'email strutturata con layout pulito e responsive, ottimizzando la lettura da smartphone o desktop.</li>
+              </ul>
+            </div>
+            <div class="feature-card" style="background: var(--color-gray-dark); border-color: var(--color-brand);">
+              <h3>Zero asterischi o testo grezzo</h3>
+              <p style="font-size: 1.1vw; line-height: 1.4;">"Niente frammenti di markdown non formattati. Le email arrivano come newsletter di alta gamma, pronte per essere scansionate visivamente prima di entrare in riunione."</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>07 / 12 — Proattività</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 8: Nightly Dream Mode (Light) -->
+      <div class="slide theme-light" data-slide-index="7">
+        <div>
+          <h2 class="slide-heading">Nightly Dream Mode</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-3col">
+            <div class="feature-card">
+              <h3>Connessioni Invisibili</h3>
+              <p>Mentre dormi, l'agente analizza le note isolate e scopre affinità semantiche, inserendo link automatici (`related`) tra concetti distanti.</p>
+            </div>
+            <div class="feature-card" style="border-color: var(--color-black); border-width: 2px;">
+              <h3>Rilevamento Anomalie</h3>
+              <p class="highlight">Scova scadenze contrastanti, incongruenze nei dettagli dei progetti o informazioni obsolete nei profili del CRM, segnalando le correzioni.</p>
+            </div>
+            <div class="feature-card">
+              <h3>Profilazione Dinamica</h3>
+              <p>Aggiorna ed allinea il profilo dell'utente (`user_profile.md`) in base ai temi caldi emersi nei diari e nei meeting della settimana.</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>08 / 12 — Ottimizzazione Notturna</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 9: Flessibilità & Sicurezza LLM (Dark) -->
+      <div class="slide theme-dark" data-slide-index="8">
+        <div>
+          <h2 class="slide-heading">Flessibilità Modelli &amp; Sicurezza</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p class="highlight" style="font-size: 1.5vw; margin-bottom: 3vh;">
+                Adattabile a qualsiasi esigenza infrastrutturale o di privacy.
+              </p>
+              <ul>
+                <li><strong>Vertex AI &amp; Google Cloud Auth</strong>: Integrazione sicura a livello aziendale, autenticazione nativa basata su ruoli senza chiavi API hardcodate.</li>
+                <li><strong>Ollama Locale</strong>: Esecuzione completamente offline di modelli open-source sul tuo server per la massima riservatezza intellettuale.</li>
+                <li><strong>Fallback Cascade</strong>: Se il server cloud è irraggiungibile, la pipeline devia automaticamente su motori alternativi senza interruzioni di servizio.</li>
+              </ul>
+            </div>
+            <div style="background-color: var(--color-gray-dark); padding: 4%; border: 1px dashed var(--color-gray-muted); border-radius: 4px; display: flex; flex-direction: column; justify-content: center; height: 100%;">
+              <h4 style="font-family: var(--font-header); font-size: 1.3vw; color: var(--color-white); text-transform: uppercase; margin-bottom: 2vh;">Cascata di Resilienza</h4>
+              <p style="font-size: 1.1vw; margin-bottom: 0;">"Il fallimento di un'API esterna non ferma il Secondo Cervello. La cascata garantisce che il sync e l'ingestione procedano sempre usando la risorsa locale."</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>09 / 12 — Infrastruttura</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 10: Editabilità Bidirezionale (Light) -->
+      <div class="slide theme-light" data-slide-index="9">
+        <div>
+          <h2 class="slide-heading">Co-Design &amp; Editabilità Bidirezionale</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p style="font-size: 1.6vw; line-height: 1.3; margin-bottom: 3vh;" class="highlight">
+                Il designer mantiene il controllo e la genitorialità dell'algoritmo visivo.
+              </p>
+              <ul>
+                <li><strong>PNG + JSON</strong>: Ogni esportazione genera l'immagine raster finita ed un file sorgente JSON con la griglia cromatico-geometrica.</li>
+                <li><strong>Interazione Bidirezionale</strong>: Il JSON generato dall'AI può essere aperto e modificato a mano nella dashboard per ritocchi tipografici millimetrici.</li>
+                <li><strong>Tracciabilità totale</strong>: È possibile rigenerare e aggiornare grafiche storiche ripartendo dal loro preset archiviato.</li>
+              </ul>
+            </div>
+            <div style="height: 100%; display: flex; align-items: center; justify-content: center; background: var(--color-gray-light); border-left: 4px solid var(--color-brand); padding: 4%; border-radius: 4px;">
+              <p style="font-size: 1.4vw; font-weight: 500; font-family: var(--font-header); text-transform: uppercase; line-height: 1.3; margin-bottom: 0;">
+                AI Genera Preset JSON ➔ Designer lo modifica in UI ➔ Rendering Deterministico ➔ Immagine Geometricamente Perfetta.
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>10 / 12 — Design Generativo</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 11: ROI & Valore (Dark) -->
+      <div class="slide theme-dark" data-slide-index="10">
+        <div>
+          <h2 class="slide-heading">Valore del Progetto &amp; ROI</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-3col">
+            <div class="feature-card">
+              <h3>Democratizzazione</h3>
+              <p>Chiunque nel team può generare grafiche e consultare dati complessi usando solo il linguaggio naturale.</p>
+            </div>
+            <div class="feature-card" style="border-color: var(--color-brand); border-width: 2px;">
+              <h3>Salvataggio del Brand</h3>
+              <p class="highlight">Garantisce al 100% che la brand identity (colori, loghi, contrasti tipografici) non venga mai alterata o abusata.</p>
+            </div>
+            <div class="feature-card">
+              <h3>Automazione Attiva</h3>
+              <p>Azzeramento dei tempi morti per briefing dei meeting e sincronizzazione dei flussi di lavoro Notion/Mail.</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>11 / 12 — Business Value</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+      <!-- Slide 12: Next Steps (Light) -->
+      <div class="slide theme-light" data-slide-index="11">
+        <div>
+          <h2 class="slide-heading">Iniziamo a Co-Progettare</h2>
+          <div class="accent-bar"></div>
+          
+          <div class="grid-2col">
+            <div>
+              <p class="highlight" style="font-size: 1.8vw; font-weight: 600; line-height: 1.3; margin-bottom: 3vh;">
+                Il Secondo Cervello è pronto per essere integrato nella tua infrastruttura aziendale.
+              </p>
+              <ul>
+                <li><strong>Deploy rapido</strong>: Attivazione in 5 minuti su server Linux (`systemd`) o macOS (`launchd`).</li>
+                <li><strong>Personalizzazione totale</strong>: Sviluppo di moduli ad hoc per i tuoi database o flussi mail.</li>
+                <li><strong>Sviluppo Brand System</strong>: Creazione di regole di visual design deterministiche su misura.</li>
+              </ul>
+            </div>
+            <div style="background-color: var(--color-gray-light); padding: 6%; border: 2px solid var(--color-black); border-radius: 4px; display: flex; flex-direction: column; justify-content: center; height: 100%;">
+              <h3 style="margin-bottom: 2vh;">FF3300</h3>
+              <p style="font-size: 1.1vw; margin-bottom: 1vh;">Strategy + Design + AI</p>
+              <p style="font-size: 1.1vw; margin-bottom: 0;" class="highlight">www.ff3300.com</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="slide-footer">
+          <span>12 / 12 — Contatti</span>
+          <span class="footer-brand">FF3300</span>
+        </div>
+      </div>
+      
+    </div>
+    
+    <!-- Navigation Buttons -->
+    <div class="nav-controls" id="navControls">
+      <button class="nav-btn" id="prevBtn" aria-label="Precedente">←</button>
+      <button class="nav-btn" id="nextBtn" aria-label="Successiva">→</button>
+    </div>
+    
+    <!-- Dots Indicator -->
+    <div class="dots-container" id="dotsContainer"></div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const slides = document.querySelectorAll(".slide");
+      const prevBtn = document.getElementById("prevBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const dotsContainer = document.getElementById("dotsContainer");
+      const presentationContainer = document.getElementById("presentationContainer");
+      const navControls = document.getElementById("navControls");
+      
+      let currentSlide = 0;
+      const totalSlides = slides.length;
+      
+      // Generate Dots
+      slides.forEach((_, index) => {
+        const dot = document.createElement("div");
+        dot.classList.add("dot");
+        if (index === 0) dot.classList.add("active");
+        dot.addEventListener("click", () => goToSlide(index));
+        dotsContainer.appendChild(dot);
+      });
+      
+      const dots = document.querySelectorAll(".dot");
+      
+      function updateNavigationColors() {
+        const currentSlideEl = slides[currentSlide];
+        if (currentSlideEl.classList.contains("theme-light")) {
+          presentationContainer.classList.add("theme-light-controls");
+        } else {
+          presentationContainer.classList.remove("theme-light-controls");
+        }
+      }
+      
+      function goToSlide(index) {
+        if (index < 0 || index >= totalSlides) return;
+        
+        slides[currentSlide].classList.remove("active");
+        dots[currentSlide].classList.remove("active");
+        
+        currentSlide = index;
+        
+        slides[currentSlide].classList.add("active");
+        dots[currentSlide].classList.add("active");
+        
+        updateNavigationColors();
+      }
+      
+      function nextSlide() {
+        if (currentSlide < totalSlides - 1) {
+          goToSlide(currentSlide + 1);
+        } else {
+          goToSlide(0); // Loop back to start
+        }
+      }
+      
+      function prevSlide() {
+        if (currentSlide > 0) {
+          goToSlide(currentSlide - 1);
+        } else {
+          goToSlide(totalSlides - 1); // Loop to end
+        }
+      }
+      
+      // Event Listeners
+      nextBtn.addEventListener("click", nextSlide);
+      prevBtn.addEventListener("click", prevSlide);
+      
+      // Keyboard Navigation
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight" || e.key === "Space" || e.key === " ") {
+          e.preventDefault();
+          nextSlide();
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          prevSlide();
+        }
+      });
+      
+      // Touch Swipe Support
+      let touchStartX = 0;
+      let touchEndX = 0;
+      
+      presentationContainer.addEventListener("touchstart", (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+      });
+      
+      presentationContainer.addEventListener("touchend", (e) => {
+        touchEndX = e.changedTouches[0].screenX;
+        handleSwipe();
+      });
+      
+      function handleSwipe() {
+        if (touchEndX < touchStartX - 50) {
+          nextSlide(); // Swipe left -> next slide
+        }
+        if (touchEndX > touchStartX + 50) {
+          prevSlide(); // Swipe right -> prev slide
+        }
+      }
+      
+      // Initial state
+      updateNavigationColors();
+    });
+  </script>
+</body>
+</html>
