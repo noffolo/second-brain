@@ -20,7 +20,20 @@ import httpx
 
 DASHBOARD_URL = "http://localhost:8000"
 
+def is_authorized(update: Update) -> bool:
+    allowed_users_str = os.getenv("TELEGRAM_ALLOWED_USERS", "")
+    if not allowed_users_str:
+        return True
+    user = update.effective_user
+    if not user:
+        return False
+    allowed_ids = [x.strip() for x in allowed_users_str.split(",") if x.strip()]
+    return str(user.id) in allowed_ids
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
+        return
     await update.message.reply_text(
         "Ciao! Sono il bot del tuo Secondo Cervello. Puoi usarmi nei seguenti modi:\n\n"
         "💬 *Scrivimi una domanda* in linguaggio naturale per consultare la tua base di conoscenza.\n"
@@ -31,6 +44,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
+        return
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     try:
@@ -61,6 +77,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def ingest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
+        return
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     
@@ -123,6 +142,9 @@ async def ingest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📥 *Scegli la sorgente da ingerire*:", reply_markup=reply_markup, parse_mode="Markdown")
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
+        return
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     
@@ -204,6 +226,9 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not is_authorized(update):
+        await query.answer(text="Non sei autorizzato ad utilizzare questo bot.", show_alert=True)
+        return
     await query.answer()
     
     data = query.data
@@ -243,6 +268,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ Impossibile fermare: dashboard non raggiungibile ({e})")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("Non sei autorizzato ad utilizzare questo bot.")
+        return
     user_message = update.message.text
     chat_id = update.effective_chat.id
     
