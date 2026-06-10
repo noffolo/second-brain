@@ -76,6 +76,10 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
     utilizzando i rispettivi modelli richiesti dall'utente.
     """
     import os
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    is_gemini_key_valid = gemini_key and gemini_key != "dummy-key" and not gemini_key.startswith("YOUR_")
+    use_gemini = is_gemini_key_valid or (hasattr(gemini_config, "vertex") and gemini_config.vertex)
+
     model_name = gemini_config.model
     if model_name.startswith("ollama") or os.getenv("OLLAMA_ENABLED") == "true":
         ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip('/')
@@ -130,57 +134,60 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
     base_delay = 4
     errors = []
     
-    # 1a. Tentativo con Gemini Principale (da settings.md, es. gemini-3.5-flash)
-    for attempt in range(max_retries + 1):
-        try:
-            print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via Antigravity SDK...")
-            async with Agent(gemini_config) as agent:
-                response = await agent.chat(prompt)
-                resp_text = await response.text()
-            if resp_text and resp_text.strip() != "":
-                return resp_text
-            raise RuntimeError("Risposta vuota da Gemini SDK")
-        except Exception as e:
-            errors.append(f"Gemini Principale ({gemini_config.model}): {e}")
-            err_str = str(e).lower()
-            is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests"])
-            if is_rate_limit and attempt < max_retries:
-                delay = base_delay * (2 ** attempt)
-                print(f"Rilevato limite di frequenza (429) per {gemini_config.model}. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
-                await asyncio.sleep(delay)
-            else:
-                err_msg = str(e)
-                print(f"Gemini API ({gemini_config.model}) fallita o congestionata ({err_msg[:80]}...). Tento fallback su gemini-1.5-flash...")
-                break
-                
-    # 1b. Tentativo con Gemini Secondario (gemini-1.5-flash)
-    for attempt in range(max_retries + 1):
-        try:
-            fallback_gemini_config = LocalAgentConfig(
-                model="gemini-1.5-flash",
-                system_instructions=gemini_config.system_instructions,
-                vertex=gemini_config.vertex,
-                project=gemini_config.project,
-                location=gemini_config.location
-            )
-            print(f"Tentativo di elaborazione con Gemini Secondario (gemini-1.5-flash) via Antigravity SDK...")
-            async with Agent(fallback_gemini_config) as agent:
-                response = await agent.chat(prompt)
-                resp_text = await response.text()
-            if resp_text and resp_text.strip() != "":
-                return resp_text
-            raise RuntimeError("Risposta vuota da Gemini SDK (gemini-1.5-flash)")
-        except Exception as e2:
-            errors.append(f"Gemini Secondario (gemini-1.5-flash): {e2}")
-            err_str2 = str(e2).lower()
-            is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests"])
-            if is_rate_limit2 and attempt < max_retries:
-                delay = base_delay * (2 ** attempt)
-                print(f"Rilevato limite di frequenza (429) per gemini-1.5-flash. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
-                await asyncio.sleep(delay)
-            else:
-                print(f"Gemini fallback (gemini-1.5-flash) fallito: {e2}. Avvio cascata di fallback multi-provider...")
-                break
+    if use_gemini:
+        # 1a. Tentativo con Gemini Principale (da settings.md, es. gemini-3.5-flash)
+        for attempt in range(max_retries + 1):
+            try:
+                print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via Antigravity SDK...")
+                async with Agent(gemini_config) as agent:
+                    response = await agent.chat(prompt)
+                    resp_text = await response.text()
+                if resp_text and resp_text.strip() != "":
+                    return resp_text
+                raise RuntimeError("Risposta vuota da Gemini SDK")
+            except Exception as e:
+                errors.append(f"Gemini Principale ({gemini_config.model}): {e}")
+                err_str = str(e).lower()
+                is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests"])
+                if is_rate_limit and attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    print(f"Rilevato limite di frequenza (429) per {gemini_config.model}. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
+                    await asyncio.sleep(delay)
+                else:
+                    err_msg = str(e)
+                    print(f"Gemini API ({gemini_config.model}) fallita o congestionata ({err_msg[:80]}...). Tento fallback su gemini-1.5-flash...")
+                    break
+                    
+        # 1b. Tentativo con Gemini Secondario (gemini-1.5-flash)
+        for attempt in range(max_retries + 1):
+            try:
+                fallback_gemini_config = LocalAgentConfig(
+                    model="gemini-1.5-flash",
+                    system_instructions=gemini_config.system_instructions,
+                    vertex=gemini_config.vertex,
+                    project=gemini_config.project,
+                    location=gemini_config.location
+                )
+                print(f"Tentativo di elaborazione con Gemini Secondario (gemini-1.5-flash) via Antigravity SDK...")
+                async with Agent(fallback_gemini_config) as agent:
+                    response = await agent.chat(prompt)
+                    resp_text = await response.text()
+                if resp_text and resp_text.strip() != "":
+                    return resp_text
+                raise RuntimeError("Risposta vuota da Gemini SDK (gemini-1.5-flash)")
+            except Exception as e2:
+                errors.append(f"Gemini Secondario (gemini-1.5-flash): {e2}")
+                err_str2 = str(e2).lower()
+                is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests"])
+                if is_rate_limit2 and attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    print(f"Rilevato limite di frequenza (429) per gemini-1.5-flash. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
+                    await asyncio.sleep(delay)
+                else:
+                    print(f"Gemini fallback (gemini-1.5-flash) fallito: {e2}. Avvio cascata di fallback multi-provider...")
+                    break
+    else:
+        errors.append("Gemini saltato: chiave non valida o dummy-key in GEMINI_API_KEY e Vertex disabilitato.")
 
     # 2. Fallback su OpenAI (gpt-4o-mini)
     openai_key = os.getenv("OPENAI_API_KEY")
