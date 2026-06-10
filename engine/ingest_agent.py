@@ -335,7 +335,7 @@ Per ogni persona, organizzazione o progetto (entità) rilevato nel testo, contro
 Genera un output JSON strutturato che rispecchi esattamente questo schema Pydantic:
 ```json
 {{
-  "is_noise": false, // imposta a true se il testo è rumore o spam irrilevante
+  "is_noise": false, // imposta a true se il testo è rumore o spam irrilevante (i file da Notion/Calendario/Task non sono MAI rumore)
   "source_summary": {{
     "title": "Titolo identificativo della sorgente",
     "summary": "Riassunto strutturato e denso del contenuto",
@@ -389,7 +389,21 @@ Restituisci solo ed esclusivamente il blocco JSON.
         return False
         
     # 2. LIVELLO 2: Post-filtro semantico per lo spam e il rumore
-    if data.get("is_noise", False):
+    is_noise = data.get("is_noise", False)
+    
+    # I file da Notion, calendario e task non devono mai essere considerati rumore/spam.
+    if is_noise and any(x in rel_path for x in ["raw/notion/", "raw/calendar/", "raw/tasks/"]):
+        print(f"  - Post-filtro bypassato per {rel_path} (fonte Notion/Calendario/Task)")
+        is_noise = False
+        if not data.get("source_summary"):
+            data["source_summary"] = {
+                "title": os.path.basename(rel_path).replace(".md", ""),
+                "summary": "Importato automaticamente da Notion/Calendario/Task.",
+                "key_points": ["Importato da Notion/Calendario/Task"],
+                "tags": ["notion"]
+            }
+            
+    if is_noise:
         print(f"  - Post-filtro: Saltato '{rel_path}' (identificato come rumore/spam dall'LLM)")
         save_processed_file(rel_path)
         append_to_log(f"[AI Ingest - Post-filtro] Saltato '{rel_path}' (identificato come rumore/spam)")
