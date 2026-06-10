@@ -283,10 +283,11 @@ def notion_sync_to_raw() -> int:
         
         results = []
         
-        # 1. Se sync_all è disabilitato e ci sono database specificati, interroga quelli
-        if db_ids and not sync_all:
+        # 1. Interroga i database specificati se presenti
+        if db_ids:
             for db_id in db_ids:
                 print(f"Interrogazione database Notion paginato: {db_id}...")
+                db_results = []
                 try:
                     has_more = True
                     next_cursor = None
@@ -295,30 +296,28 @@ def notion_sync_to_raw() -> int:
                         if next_cursor:
                             body["start_cursor"] = next_cursor
                         resp = client.request(path=f"databases/{db_id}/query", method="POST", body=body)
-                        results.extend(resp.get("results", []))
+                        db_results.extend(resp.get("results", []))
                         has_more = resp.get("has_more", False)
                         next_cursor = resp.get("next_cursor")
-                    continue
                 except Exception as e:
                     print(f"Nota: databases/query fallito ({e}). Tento data_sources/query...")
+                    try:
+                        has_more = True
+                        next_cursor = None
+                        while has_more:
+                            body = {}
+                            if next_cursor:
+                                body["start_cursor"] = next_cursor
+                            resp = client.request(path=f"data_sources/{db_id}/query", method="POST", body=body)
+                            db_results.extend(resp.get("results", []))
+                            has_more = resp.get("has_more", False)
+                            next_cursor = resp.get("next_cursor")
+                    except Exception as e2:
+                        print(f"Nota: data_sources/query fallito ({e2}).")
+                results.extend(db_results)
                     
-                try:
-                    has_more = True
-                    next_cursor = None
-                    while has_more:
-                        body = {}
-                        if next_cursor:
-                            body["start_cursor"] = next_cursor
-                        resp = client.request(path=f"data_sources/{db_id}/query", method="POST", body=body)
-                        results.extend(resp.get("results", []))
-                        has_more = resp.get("has_more", False)
-                        next_cursor = resp.get("next_cursor")
-                    continue
-                except Exception as e:
-                    print(f"Nota: data_sources/query fallito ({e}).")
-                    
-        # 2. Se sync_all è abilitato o come fallback se i database non hanno prodotto risultati
-        if sync_all or not results:
+        # 2. Se sync_all è abilitato, esegui anche la ricerca globale per altre pagine
+        if sync_all:
             print("Sincronizzazione tramite ricerca globale (client.search) con paginazione completa...")
             try:
                 has_more = True
@@ -336,6 +335,16 @@ def notion_sync_to_raw() -> int:
                     next_cursor = search_resp.get("next_cursor")
             except Exception as e:
                 print(f"Errore nella ricerca globale: {e}")
+
+        # Rimuovi duplicati basandoti sull'ID pagina
+        unique_results = []
+        seen_ids = set()
+        for r in results:
+            r_id = r.get("id")
+            if r_id and r_id not in seen_ids:
+                seen_ids.add(r_id)
+                unique_results.append(r)
+        results = unique_results
                 
         print(f"Trovate {len(results)} pagine totali in Notion. Inizio elaborazione/aggiornamento locale...")
         

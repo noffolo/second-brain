@@ -12,25 +12,36 @@ def get_vault_path() -> str:
 def get_processed_manifest_path() -> str:
     return os.path.join(get_vault_path(), "engine", "processed_files.json")
 
-def load_processed_files() -> set[str]:
+def load_processed_files() -> dict[str, float]:
     path = get_processed_manifest_path()
     if not os.path.exists(path):
-        return set()
+        return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return set(data)
+            if isinstance(data, list):
+                return {p: 0.0 for p in data}
+            elif isinstance(data, dict):
+                return data
+            return {}
     except Exception:
-        return set()
+        return {}
 
 def save_processed_file(relative_path: str):
     path = get_processed_manifest_path()
     processed = load_processed_files()
-    processed.add(relative_path)
+    
+    # Prendi l'mtime corrente del file da registrare
+    abs_path = os.path.join(get_vault_path(), relative_path)
+    mtime = 0.0
+    if os.path.exists(abs_path):
+        mtime = os.path.getmtime(abs_path)
+        
+    processed[relative_path] = mtime
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(list(processed), f, indent=4)
+            json.dump(processed, f, indent=4)
     except Exception as e:
         print(f"Errore nel salvare il manifest: {e}")
 
@@ -257,12 +268,25 @@ def search_wiki(query: str) -> list[dict]:
 def list_unprocessed_raw() -> list[str]:
     """
     Elenca tutti i file in raw/ (e opzionalmente verbali nuovi in Meetings/) 
-    che non sono ancora stati processati, ordinati per priorità.
+    che non sono ancora stati processati o che sono stati modificati dall'ultima elaborazione,
+    ordinati per priorità.
     """
     vault = get_vault_path()
     processed = load_processed_files()
     unprocessed = []
     
+    def needs_processing(rel_path: str, abs_path: str) -> bool:
+        if rel_path not in processed:
+            return True
+        # Se presente in processed, controlla se l'mtime corrente è maggiore di quello salvato.
+        # Aggiungiamo un piccolo margine di tolleranza di 1.0 secondo.
+        recorded_mtime = processed.get(rel_path, 0.0)
+        try:
+            current_mtime = os.path.getmtime(abs_path)
+            return current_mtime > (recorded_mtime + 1.0)
+        except Exception:
+            return False
+            
     # 1. Check raw/ folder
     raw_dir = os.path.join(vault, "raw")
     for root, dirs, files in os.walk(raw_dir):
@@ -275,7 +299,7 @@ def list_unprocessed_raw() -> list[str]:
                 continue
             abs_path = os.path.join(root, file)
             rel_path = os.path.relpath(abs_path, vault)
-            if rel_path not in processed:
+            if needs_processing(rel_path, abs_path):
                 unprocessed.append(rel_path)
                 
     # 2. Check Meetings/ folder (for meeting-agent integration)
@@ -287,7 +311,7 @@ def list_unprocessed_raw() -> list[str]:
                     continue
                 abs_path = os.path.join(root, file)
                 rel_path = os.path.relpath(abs_path, vault)
-                if rel_path not in processed:
+                if needs_processing(rel_path, abs_path):
                     unprocessed.append(rel_path)
                     
     # Ordinamento per priorità per evitare blocchi causati da dump storici enormi
