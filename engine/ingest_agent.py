@@ -374,8 +374,13 @@ Restituisci solo ed esclusivamente il blocco JSON.
         json_match = re.search(r"```json\s*(.*?)\s*```", resp_text, re.DOTALL)
         json_str = json_match.group(1) if json_match else resp_text.strip()
         
+        # Parse first to clean/normalize keys
+        parsed_json = json.loads(json_str)
+        if parsed_json.get("is_noise", False) or parsed_json.get("source_summary") == {}:
+            parsed_json["source_summary"] = None
+            
         # Pydantic validation
-        response_data = WikiIngestResponse.model_validate_json(json_str)
+        response_data = WikiIngestResponse.model_validate(parsed_json)
         data = response_data.model_dump()
     except Exception as e:
         print(f"Errore durante l'estrazione LLM o parsing JSON/Pydantic per {rel_path}: {e}")
