@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode-terminal';
 import fs from 'fs';
 import path from 'path';
@@ -53,8 +53,12 @@ async function startSock() {
     console.log('Inizializzazione sessione WhatsApp...');
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    console.log(`Uso la versione del protocollo WA Web v${version.join('.')}, isLatest: ${isLatest}`);
+
     const sock = makeWASocket({
         auth: state,
+        version: version,
         printQRInTerminal: false // Lo gestiamo noi manualmente per stampare messaggi chiari
     });
 

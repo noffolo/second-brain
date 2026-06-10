@@ -9,7 +9,7 @@
     "list-groups": "node syncer.js --list-groups"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.7",
+    "@whiskeysockets/baileys": "latest",
     "qrcode-terminal": "^0.12.0",
     "dotenv": "^16.4.5"
   }
