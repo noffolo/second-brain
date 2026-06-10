@@ -115,20 +115,49 @@ def get_second_brain_statistics() -> str:
     total_projects = 0
     active_projects = 0
     completed_projects = 0
+    projects_by_client = {}
     if os.path.exists(projects_dir):
         for root, _, files in os.walk(projects_dir):
             for f in files:
                 if f.endswith(".md") and not f.startswith("."):
                     total_projects += 1
                     try:
-                        with open(os.path.join(root, f), "r", encoding="utf-8") as file_f:
-                            content = file_f.read(800)
-                        if "completato?: true" in content.lower():
+                        filepath = os.path.join(root, f)
+                        with open(filepath, "r", encoding="utf-8") as file_f:
+                            content = file_f.read()
+                        fm, _ = parse_markdown(content)
+                        is_completed = False
+                        if fm:
+                            is_completed = fm.get("completato") is True or str(fm.get("completato")).lower() == "true"
+                            if not is_completed:
+                                if "completato?: true" in content.lower() or "completato: true" in content.lower():
+                                    is_completed = True
+                        else:
+                            if "completato?: true" in content.lower() or "completato: true" in content.lower():
+                                is_completed = True
+                                
+                        if is_completed:
                             completed_projects += 1
                         else:
                             active_projects += 1
+                            
+                        # Aggrega progetti per cliente
+                        if fm:
+                            cliente_data = fm.get("cliente") or fm.get("clienti")
+                            if cliente_data:
+                                if isinstance(cliente_data, str):
+                                    clients = [cliente_data]
+                                elif isinstance(cliente_data, list):
+                                    clients = cliente_data
+                                else:
+                                    clients = []
+                                for c in clients:
+                                    if isinstance(c, str):
+                                        clean_c = c.replace("[[", "").replace("]]", "").strip()
+                                        if clean_c:
+                                            projects_by_client[clean_c] = projects_by_client.get(clean_c, 0) + 1
                     except Exception:
-                        active_projects += 1
+                        pass
 
     # 3. Clienti
     clienti_dir = os.path.join(vault, "wiki", "entities", "Clienti")
@@ -151,18 +180,97 @@ def get_second_brain_statistics() -> str:
     task_dir = os.path.join(vault, "wiki", "entities", "Task")
     total_tasks = 0
     tasks_by_status = {}
+    completed_tasks_by_client = {}
+    
+    # Per risalire al cliente dal progetto se manca nella task
+    project_to_clients = {}
+    if os.path.exists(projects_dir):
+        for root, _, files in os.walk(projects_dir):
+            for f in files:
+                if f.endswith(".md") and not f.startswith("."):
+                    proj_name = f[:-3]
+                    try:
+                        filepath = os.path.join(root, f)
+                        with open(filepath, "r", encoding="utf-8") as file_f:
+                            content = file_f.read()
+                        fm, _ = parse_markdown(content)
+                        if fm:
+                            cliente_data = fm.get("cliente") or fm.get("clienti")
+                            if cliente_data:
+                                if isinstance(cliente_data, str):
+                                    clients = [cliente_data]
+                                elif isinstance(cliente_data, list):
+                                    clients = cliente_data
+                                else:
+                                    clients = []
+                                clean_clients = []
+                                for c in clients:
+                                    if isinstance(c, str):
+                                        clean_c = c.replace("[[", "").replace("]]", "").strip()
+                                        if clean_c:
+                                            clean_clients.append(clean_c)
+                                if clean_clients:
+                                    project_to_clients[proj_name] = clean_clients
+                    except Exception:
+                        pass
+
     if os.path.exists(task_dir):
         for root, _, files in os.walk(task_dir):
             for f in files:
                 if f.endswith(".md") and not f.startswith("."):
                     total_tasks += 1
                     try:
-                        with open(os.path.join(root, f), "r", encoding="utf-8") as file_f:
-                            content = file_f.read(800)
-                        status_match = re.search(r"stato:\s*['\"]?([^'\n\"]+)", content.lower())
-                        if status_match:
-                            status = status_match.group(1).strip()
-                            tasks_by_status[status] = tasks_by_status.get(status, 0) + 1
+                        filepath = os.path.join(root, f)
+                        with open(filepath, "r", encoding="utf-8") as file_f:
+                            content = file_f.read()
+                        fm, _ = parse_markdown(content)
+                        if not fm:
+                            continue
+                            
+                        status = fm.get("stato")
+                        if status:
+                            status_str = str(status).strip()
+                            tasks_by_status[status_str] = tasks_by_status.get(status_str, 0) + 1
+                            
+                        # Determina i clienti per questa task
+                        clients = []
+                        cliente_data = fm.get("cliente") or fm.get("clienti")
+                        if cliente_data:
+                            if isinstance(cliente_data, str):
+                                clients = [cliente_data]
+                            elif isinstance(cliente_data, list):
+                                clients = cliente_data
+                                
+                        clean_clients = []
+                        for c in clients:
+                            if isinstance(c, str):
+                                clean_c = c.replace("[[", "").replace("]]", "").strip()
+                                if clean_c:
+                                    clean_clients.append(clean_c)
+                                    
+                        # Se non ci sono clienti diretti, proviamo con il progetto
+                        if not clean_clients:
+                            progetto_data = fm.get("progetto")
+                            if progetto_data:
+                                if isinstance(progetto_data, str):
+                                    projects = [progetto_data]
+                                elif isinstance(progetto_data, list):
+                                    projects = progetto_data
+                                else:
+                                    projects = []
+                                for p in projects:
+                                    if isinstance(p, str):
+                                        clean_p = p.replace("[[", "").replace("]]", "").strip()
+                                        if clean_p in project_to_clients:
+                                            clean_clients.extend(project_to_clients[clean_p])
+                                            
+                        seen = set()
+                        clean_clients = [x for x in clean_clients if not (x in seen or seen.add(x))]
+                        
+                        is_completed = (status == "Finito")
+                        for clean_c in clean_clients:
+                            if is_completed:
+                                completed_tasks_by_client[clean_c] = completed_tasks_by_client.get(clean_c, 0) + 1
                     except Exception:
                         pass
 
@@ -180,11 +288,22 @@ def get_second_brain_statistics() -> str:
         
     if meetings_by_client:
         out.append("\n🏆 CLASSIFICA CLIENTI CON PIÙ RIUNIONI:")
-        # Ordina per numero decrescente, poi per nome crescente
         sorted_clients = sorted(meetings_by_client.items(), key=lambda x: (-x[1], x[0]))
         for rank, (client, count) in enumerate(sorted_clients, 1):
             out.append(f"{rank}. [[{client}]]: {count} riunioni")
         
+    if projects_by_client:
+        out.append("\n🏆 CLASSIFICA CLIENTI CON PIÙ PROGETTI:")
+        sorted_proj_clients = sorted(projects_by_client.items(), key=lambda x: (-x[1], x[0]))
+        for rank, (client, count) in enumerate(sorted_proj_clients, 1):
+            out.append(f"{rank}. [[{client}]]: {count} progetti")
+            
+    if completed_tasks_by_client:
+        out.append("\n🏆 CLASSIFICA CLIENTI CON PIÙ TASK SVOLTI:")
+        sorted_task_clients = sorted(completed_tasks_by_client.items(), key=lambda x: (-x[1], x[0]))
+        for rank, (client, count) in enumerate(sorted_task_clients, 1):
+            out.append(f"{rank}. [[{client}]]: {count} task svolti")
+
     out.append(f"\n✨ PROGETTI (Totale: {total_projects}):")
     out.append(f"- Attivi: {active_projects}")
     out.append(f"- Completati: {completed_projects}")
