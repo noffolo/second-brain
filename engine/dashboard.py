@@ -96,7 +96,7 @@ async def run_task_subprocess(task: ScheduledTask):
     if not os.path.exists(python_exe):
         python_exe = sys.executable
         
-    args = [python_exe, "-m", "engine.main"] + task.command_args
+    args = [python_exe, "-u", "-m", "engine.main"] + task.command_args
     print(f"[SCHEDULER] Avvio compito: {task.name} ({' '.join(args)})...", flush=True)
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -222,7 +222,7 @@ class IngestionManager:
             self.log_history.clear()
             self.active_source = source or "all"
             
-            args = [python_exe, "-m", "engine.main", "ingest"]
+            args = [python_exe, "-u", "-m", "engine.main", "ingest"]
             if source and source != "all":
                 args.extend(["--source", source])
                 

@@ -804,8 +804,10 @@
                         if (d > maxDist) maxDist = d;
                     });
                     
-                    // Calcola distanza ottimale (zoom più ravvicinato)
-                    const distance = Math.max(maxDist * 1.8, is3D ? 80 : 120);
+                    // Calcola distanza ottimale (zoom più ravvicinato, extra-vicino in fase di ragionamento)
+                    const distanceMultiplier = isThinking ? 1.1 : 1.8;
+                    const minDistance = isThinking ? (is3D ? 45 : 65) : (is3D ? 80 : 120);
+                    const distance = Math.max(maxDist * distanceMultiplier, minDistance);
                     
                     // In 2D manteniamo l'asse Z a piombo
                     const camX = is3D ? avgX + distance * 0.6 : avgX;

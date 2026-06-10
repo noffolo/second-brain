@@ -5,11 +5,57 @@ import urllib.request
 import urllib.error
 import asyncio
 from google.antigravity import Agent, LocalAgentConfig
+from google.antigravity.types import CapabilitiesConfig
 
 try:
     ssl_context = ssl._create_unverified_context()
 except AttributeError:
     ssl_context = None
+
+# Circuit Breaker per i modelli che hanno esaurito la quota
+RATE_LIMITS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".rate_limits.json")
+
+def load_rate_limited_models() -> set:
+    import time
+    if not os.path.exists(RATE_LIMITS_FILE):
+        return set()
+    try:
+        with open(RATE_LIMITS_FILE, "r") as f:
+            data = json.load(f)
+        now = time.time()
+        active = set()
+        for model, expiry in data.items():
+            if now < expiry:
+                active.add(model)
+        return active
+    except Exception as e:
+        print(f"[Circuit Breaker] Errore di lettura file limitazioni: {e}")
+        return set()
+
+def save_rate_limited_model(model: str, duration_seconds: int = 1800):
+    import time
+    data = {}
+    if os.path.exists(RATE_LIMITS_FILE):
+        try:
+            with open(RATE_LIMITS_FILE, "r") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    
+    now = time.time()
+    clean_data = {}
+    for m, expiry in data.items():
+        if now < expiry:
+            clean_data[m] = expiry
+            
+    clean_data[model] = now + duration_seconds
+    
+    try:
+        with open(RATE_LIMITS_FILE, "w") as f:
+            json.dump(clean_data, f)
+        print(f"[Circuit Breaker] Modello {model} registrato come limitato fino a {time.strftime('%H:%M:%S', time.localtime(now + duration_seconds))}")
+    except Exception as e:
+        print(f"[Circuit Breaker] Errore di scrittura file limitazioni: {e}")
 
 async def call_openai_compatible_api(url: str, api_key: str, model: str, system_instructions: str, prompt: str) -> str:
     """
@@ -67,13 +113,80 @@ async def call_openai_compatible_api(url: str, api_key: str, model: str, system_
             else:
                 raise RuntimeError(f"{e}")
 
+async def call_native_gemini_api(model: str, api_key: str, system_instructions: str, prompt: str) -> str:
+    """
+    Invia una richiesta HTTP POST diretta alle API REST di Google Gemini (senza passare per l'SDK).
+    Questo evita conflitti di autorizzazioni degli strumenti (tool declarations) e fornisce codici 429 immediati.
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+    if system_instructions:
+        payload["systemInstruction"] = {
+            "parts": [
+                {"text": system_instructions}
+            ]
+        }
+        
+    # Forza il formato JSON se il prompt lo richiede
+    if "json" in prompt.lower():
+        payload["generationConfig"] = {
+            "responseMimeType": "application/json"
+        }
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    
+    loop = asyncio.get_running_loop()
+    max_retries = 3
+    base_delay = 4
+    for attempt in range(max_retries + 1):
+        try:
+            def do_request():
+                with urllib.request.urlopen(req, context=ssl_context, timeout=90) as response:
+                    return response.read().decode("utf-8")
+                    
+            resp_body = await loop.run_in_executor(None, do_request)
+            resp_json = json.loads(resp_body)
+            return resp_json["candidates"][0]["content"]["parts"][0]["text"]
+        except urllib.error.HTTPError as e:
+            err_content = e.read().decode("utf-8") if e.fp else str(e)
+            is_rate_limit = (e.code == 429) or any(x in err_content.lower() for x in ["quota", "rate limit", "too many requests"])
+            if is_rate_limit:
+                # Per i limiti di quota sui modelli gratuiti, solleviamo subito l'errore per attivare il circuit breaker
+                raise RuntimeError(f"HTTP Error 429 (Rate Limit): {err_content}")
+            elif attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                print(f"HTTP Error {e.code} da Gemini API. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
+                await asyncio.sleep(delay)
+            else:
+                raise RuntimeError(f"HTTP Error {e.code}: {err_content}")
+        except Exception as e:
+            err_str = str(e).lower()
+            is_rate_limit = any(x in err_str for x in ["429", "quota", "rate limit", "too many requests"])
+            if is_rate_limit:
+                raise RuntimeError(f"Error 429: {e}")
+            elif attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                print(f"Errore {e} da Gemini API. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
+                await asyncio.sleep(delay)
+            else:
+                raise RuntimeError(f"{e}")
+
 async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_config: LocalAgentConfig) -> str:
     """
-    Tenta di chiamare il modello Gemini di default (gemini-3.5-flash) tramite l'SDK Google Antigravity.
-    Se fallisce, tenta con gemini-3.1-flash.
-    Se entrambi i modelli Gemini falliscono o sono congestionati, tenta la chiamata
-    in cascata sui provider di fallback disponibili (OpenAI -> DeepSeek -> Together -> DashScope -> Zhipu)
-    utilizzando i rispettivi modelli richiesti dall'utente.
+    Tenta di chiamare il modello Gemini di default (gemini-3.5-flash) tramite API REST nativa.
+    Se fallisce o è esaurita la quota, tenta con i modelli in cascata (gemini-2.5-flash -> gemini-3.1-flash-lite -> gemini-2.0-flash).
+    Se tutti i modelli Gemini falliscono o sono congestionati, tenta la chiamata
+    in cascata sui provider di fallback disponibili (OpenAI -> DeepSeek -> Together -> DashScope -> Zhipu).
     """
     import os
     gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -130,62 +243,66 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
             except Exception as e:
                 print(f"OpenAI fallito durante bypass: {e}. Tento con la catena standard.")
 
-    max_retries = 3
-    base_delay = 4
     errors = []
     
     if use_gemini:
+        rate_limited_models = load_rate_limited_models()
         # 1a. Tentativo con Gemini Principale (da settings.md, es. gemini-3.5-flash)
-        for attempt in range(max_retries + 1):
+        if gemini_config.model in rate_limited_models:
+            print(f"Bypass Gemini Principale: {gemini_config.model} è contrassegnato in quota-limit nel file .rate_limits.json.")
+            errors.append(f"Gemini Principale ({gemini_config.model}): Saltato (in quota-limit).")
+        else:
             try:
-                print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via Antigravity SDK...")
-                async with Agent(gemini_config) as agent:
-                    response = await agent.chat(prompt)
-                    resp_text = await response.text()
+                print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via API REST nativa...")
+                resp_text = await call_native_gemini_api(
+                    model=gemini_config.model,
+                    api_key=gemini_key,
+                    system_instructions=gemini_config.system_instructions,
+                    prompt=prompt
+                )
                 if resp_text and resp_text.strip() != "":
                     return resp_text
-                raise RuntimeError("Risposta vuota da Gemini SDK")
+                raise RuntimeError("Risposta vuota da Gemini API")
             except Exception as e:
                 errors.append(f"Gemini Principale ({gemini_config.model}): {e}")
                 err_str = str(e).lower()
-                is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests"])
-                if is_rate_limit and attempt < max_retries:
-                    delay = base_delay * (2 ** attempt)
-                    print(f"Rilevato limite di frequenza (429) per {gemini_config.model}. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
-                    await asyncio.sleep(delay)
+                is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
+                if is_rate_limit:
+                    print(f"Rilevato limite di frequenza/quota (429) per {gemini_config.model}. Circuit Breaker attivato immediatamente.")
+                    save_rate_limited_model(gemini_config.model)
                 else:
                     err_msg = str(e)
-                    print(f"Gemini API ({gemini_config.model}) fallita o congestionata ({err_msg[:80]}...). Tento fallback su gemini-1.5-flash...")
-                    break
-                    
-        # 1b. Tentativo con Gemini Secondario (gemini-1.5-flash)
-        for attempt in range(max_retries + 1):
+                    print(f"Gemini API ({gemini_config.model}) fallita o congestionata ({err_msg[:80]}...). Tento fallback su altri modelli...")
+                        
+        # 1b. Tentativo con modelli Gemini di fallback in cascata (gemini-2.5-flash, gemini-3.1-flash-lite, gemini-2.0-flash)
+        fallback_models = ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash"]
+        for fallback_model in fallback_models:
+            # Ricarichiamo le limitazioni per rilevare modifiche in tempo reale fatte da altri thread/processi
+            rate_limited_models = load_rate_limited_models()
+            if fallback_model in rate_limited_models:
+                print(f"Bypass fallback: {fallback_model} è contrassegnato in quota-limit nel file .rate_limits.json.")
+                errors.append(f"Gemini Fallback ({fallback_model}): Saltato (in quota-limit).")
+                continue
             try:
-                fallback_gemini_config = LocalAgentConfig(
-                    model="gemini-1.5-flash",
+                print(f"Tentativo di elaborazione con Gemini di Fallback ({fallback_model}) via API REST nativa...")
+                resp_text = await call_native_gemini_api(
+                    model=fallback_model,
+                    api_key=gemini_key,
                     system_instructions=gemini_config.system_instructions,
-                    vertex=gemini_config.vertex,
-                    project=gemini_config.project,
-                    location=gemini_config.location
+                    prompt=prompt
                 )
-                print(f"Tentativo di elaborazione con Gemini Secondario (gemini-1.5-flash) via Antigravity SDK...")
-                async with Agent(fallback_gemini_config) as agent:
-                    response = await agent.chat(prompt)
-                    resp_text = await response.text()
                 if resp_text and resp_text.strip() != "":
                     return resp_text
-                raise RuntimeError("Risposta vuota da Gemini SDK (gemini-1.5-flash)")
+                raise RuntimeError(f"Risposta vuota da Gemini API ({fallback_model})")
             except Exception as e2:
-                errors.append(f"Gemini Secondario (gemini-1.5-flash): {e2}")
+                errors.append(f"Gemini Fallback ({fallback_model}): {e2}")
                 err_str2 = str(e2).lower()
-                is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests"])
-                if is_rate_limit2 and attempt < max_retries:
-                    delay = base_delay * (2 ** attempt)
-                    print(f"Rilevato limite di frequenza (429) per gemini-1.5-flash. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
-                    await asyncio.sleep(delay)
+                is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
+                if is_rate_limit2:
+                    print(f"Rilevato limite di frequenza/quota (429) per fallback {fallback_model}. Circuit Breaker attivato immediatamente.")
+                    save_rate_limited_model(fallback_model)
                 else:
-                    print(f"Gemini fallback (gemini-1.5-flash) fallito: {e2}. Avvio cascata di fallback multi-provider...")
-                    break
+                    print(f"Gemini fallback ({fallback_model}) fallito: {e2}.")
     else:
         errors.append("Gemini saltato: chiave non valida o dummy-key in GEMINI_API_KEY e Vertex disabilitato.")
 
