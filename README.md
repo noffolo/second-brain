@@ -68,43 +68,131 @@ Il secondo cervello organizza la conoscenza personale in un archivio locale stru
 
 ---
 
-## Guida alla configurazione del server remoto
+## Guida alla configurazione del server remoto (Linux)
 
-La destinazione ideale per ospitare il Secondo Cervello è un server remoto sempre attivo. In questo scenario, puoi connettere l'applicazione locale Antigravity Desktop al server per interrogare il wiki in modo autonomo.
+La destinazione ideale per ospitare il Secondo Cervello è un server remoto Linux sempre attivo. Questo ti consente di interrogare il vault e far girare i servizi di sincronizzazione, briefing e dream mode in modo autonomo.
 
-### 1. Avvio dei servizi sul server
-Dopo aver installato il progetto sul server, abilita il demone per mantenere attivo il processo FastAPI (comprensivo dello scheduler interno e del server MCP):
+### 1. Completamento delle configurazioni (.env locale)
+Prima di trasferire i file sul server, apri il file `.env` sul tuo computer locale e inserisci le credenziali reali dei servizi:
+
+* **Telegram (Sicurezza)**: per impedire ad estranei di consultare o comandare il tuo Secondo Cervello, inserisci il tuo ID Telegram numerico (puoi ottenerlo inviando `/start` a [@userinfobot](https://t.me/userinfobot)):
+  ```env
+  TELEGRAM_ALLOWED_USERS=il_tuo_id_numerico
+  ```
+* **E-mail (SMTP in uscita per Briefing)**: per ricevere le mail di sintesi prima dei tuoi eventi (configura ad esempio tramite una Password dell'App di Gmail):
+  ```env
+  SMTP_SERVER=smtp.gmail.com
+  SMTP_PORT=587
+  SMTP_USERNAME=tua_email@gmail.com
+  SMTP_PASSWORD=tua_password_di_app
+  SMTP_FROM=tua_email@gmail.com
+  SMTP_TO=tua_email_ricevente@gmail.com
+  ```
+* **E-mail (IMAP in entrata)**: per scaricare automaticamente le e-mail e gli allegati rilevanti da qualsiasi sistema operativo (Linux incluso):
+  ```env
+  IMAP_SERVER=imap.gmail.com
+  IMAP_PORT=993
+  IMAP_USERNAME=tua_email@gmail.com
+  IMAP_PASSWORD=tua_password_di_app
+  IMAP_MAILBOX=SecondBrain
+  ```
+
+### 2. Trasferimento dei file sul server
+Il metodo consigliato per copiare la cartella locale del secondo cervello sul server remoto tramite SSH è `rsync`. Esegui questo comando dal terminale del tuo computer locale:
 ```bash
-make install-service
+rsync -avz --exclude='.venv/' --exclude='__pycache__/' --exclude='.pytest_cache/' --exclude='build/' --exclude='*.egg-info/' ./ utente@ip-del-server:/home/utente/second_brain
 ```
-Questo comando configura ed avvia un servizio di sistema che controlla costantemente lo stato del pannello sulla porta `8000`.
+*(Questo comando trasferirà anche il file `.env` configurato al passo precedente).*
 
-### 2. Sicurezza e tunneling
-Per evitare l'esposizione pubblica della porta `8000` sulla rete internet aperta, adotta una delle seguenti soluzioni:
-* **VPN privata (consigliata)**: utilizza un servizio come Tailscale o WireGuard per inserire il server e il tuo computer locale all'interno della stessa rete privata protetta. In questo modo puoi accedere direttamente all'IP privato del server.
-* **Proxy inverso HTTPS**: configura un server Nginx o Caddy sul server per esporre la dashboard tramite crittografia SSL con autenticazione di base o restrizioni IP.
-* **Tunnel SSH temporaneo**: se desideri effettuare un test rapido, avvia un tunnel SSH dal tuo terminale locale:
+### 3. Installazione e Setup sul server
+Accedi al server remoto tramite SSH, entra nella cartella del progetto e configura l'ambiente virtuale:
+```bash
+ssh utente@ip-del-server
+cd /home/utente/second_brain
+make setup
+```
+
+### 4. Configurazione dei Servizi di Background (systemd)
+Su Linux si utilizza `systemd` per mantenere attivi i servizi. Lo scheduler universale interno (sincronizzazione, riflessione, briefing e dream mode) è incorporato nel ciclo di vita della dashboard FastAPI. 
+Dovrai quindi configurare solo due servizi di sistema.
+
+#### A. Servizio Dashboard e Scheduler (`second-brain-dashboard.service`)
+Crea il file del servizio:
+```bash
+sudo nano /etc/systemd/system/second-brain-dashboard.service
+```
+Aggiungi il seguente contenuto (adattando i percorsi dell'utente):
+```ini
+[Unit]
+Description=Secondo Cervello - Dashboard, Scheduler e Server MCP
+After=network.target
+
+[Service]
+Type=simple
+User=utente
+WorkingDirectory=/home/utente/second_brain
+ExecStart=/home/utente/second_brain/.venv/bin/python -m uvicorn engine.dashboard:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### B. Servizio Bot Telegram (`second-brain-telegram.service`)
+Crea il file del servizio:
+```bash
+sudo nano /etc/systemd/system/second-brain-telegram.service
+```
+Aggiungi il seguente contenuto:
+```ini
+[Unit]
+Description=Secondo Cervello - Telegram Bot Daemon
+After=network.target second-brain-dashboard.service
+
+[Service]
+Type=simple
+User=utente
+WorkingDirectory=/home/utente/second_brain
+ExecStart=/home/utente/second_brain/.venv/bin/python engine/telegram_bot.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### C. Attivazione dei servizi
+Ricarica i demoni di systemd, abilitali per l'esecuzione automatica all'avvio del server ed avviali:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable second-brain-dashboard
+sudo systemctl enable second-brain-telegram
+sudo systemctl start second-brain-dashboard
+sudo systemctl start second-brain-telegram
+```
+
+### 5. Sicurezza e Connessione da Antigravity Desktop
+Per motivi di sicurezza, la dashboard risponde solo all'indirizzo locale `127.0.0.1:8000`. Per connetterti dal tuo computer locale al server remoto, adotta una delle seguenti soluzioni:
+
+* **VPN privata (Consigliata)**: Configura Tailscale o WireGuard sul server e sul tuo computer locale per collegarti direttamente all'IP privato del server. Cambia l'host di ascolto del servizio dashboard con l'IP Tailscale del server.
+* **Tunnel SSH**: Avvia un tunnel dal tuo terminale locale per inoltrare la porta 8000 del server sul tuo computer locale:
   ```bash
   ssh -N -L 8000:127.0.0.1:8000 utente@ip-del-tuo-server
   ```
+Una volta stabilita la connessione, aggiungi il server MCP all'interno del file di configurazione `mcp_config.json` di Antigravity Desktop o del tuo IDE:
+```json
+{
+  "mcpServers": {
+    "secondo-cervello": {
+      "url": "http://127.0.0.1:8000/mcp/sse"
+    }
+  }
+}
+```
 
-### 3. Connessione da Antigravity Desktop
-1. Apri Antigravity Desktop sul tuo computer locale.
-2. Accedi alla sezione delle impostazioni dedicata ai server MCP.
-3. Aggiungi una nuova connessione di tipo **SSE** configurando i parametri come segue:
-   * **Nome del server**: `secondo-cervello`
-   * **URL SSE**: `http://<ip-del-tuo-server>:8000/mcp/sse` (oppure `https://<tuo-dominio>/mcp/sse` se protetto da SSL, o `http://127.0.0.1:8000/mcp/sse` se utilizzi il tunnel SSH).
-4. In alternativa, modifica direttamente il file di configurazione `mcp_config.json` sul tuo computer locale:
-   ```json
-   {
-     "mcpServers": {
-       "secondo-cervello": {
-         "url": "http://<ip-del-tuo-server>:8000/mcp/sse"
-       }
-     }
-   }
-   ```
-5. Una volta connesso, gli agenti di Antigravity Desktop useranno automaticamente gli strumenti del vault (come `query_second_brain` e `search_vault`) per reperire e arricchire le informazioni del Secondo Cervello remoto.
 
 ---
 

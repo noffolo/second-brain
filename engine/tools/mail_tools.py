@@ -4,11 +4,310 @@ import subprocess
 import re
 import shutil
 import time
+import imaplib
+import email
+from email.header import decode_header
+from email.policy import default
 from engine.utils.markdown import load_settings
 from engine.tools.drive_tools import extract_pdf_text, extract_docx_text
 
 def get_vault_path() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+def decode_mime_header(header_value: str) -> str:
+    if not header_value:
+        return ""
+    decoded_parts = decode_header(header_value)
+    result = []
+    for part, encoding in decoded_parts:
+        if isinstance(part, bytes):
+            try:
+                result.append(part.decode(encoding or "utf-8", errors="ignore"))
+            except Exception:
+                result.append(part.decode("latin1", errors="ignore"))
+        else:
+            result.append(str(part))
+    return "".join(result)
+
+def imap_sync_to_raw() -> int:
+    vault_path = get_vault_path()
+    settings = load_settings(vault_path)
+    
+    mail_settings = settings.get("sources", {}).get("apple_mail", {})
+    if not mail_settings.get("enabled", False):
+        print("Sorgente Mail disabilitata nelle impostazioni.")
+        return 0
+        
+    imap_server = os.getenv("IMAP_SERVER")
+    imap_port = os.getenv("IMAP_PORT", "993")
+    imap_username = os.getenv("IMAP_USERNAME")
+    imap_password = os.getenv("IMAP_PASSWORD")
+    imap_mailbox = os.getenv("IMAP_MAILBOX", mail_settings.get("mailbox", "SecondBrain"))
+    
+    if not all([imap_server, imap_username, imap_password]):
+        print("Parametri IMAP incompleti in .env. Impossibile avviare il sync IMAP.")
+        return 0
+        
+    attachments_dir = os.path.abspath(os.path.join(vault_path, mail_settings.get("attachments_dir", "raw/mail_attachments")))
+    os.makedirs(attachments_dir, exist_ok=True)
+    
+    raw_mail_dir = os.path.abspath(os.path.join(vault_path, "raw", "mail"))
+    os.makedirs(raw_mail_dir, exist_ok=True)
+    
+    print(f"Avvio sincronizzazione e-mail via IMAP da {imap_server} (mailbox: {imap_mailbox})...")
+    
+    try:
+        # Connessione SSL
+        mail_client = imaplib.IMAP4_SSL(imap_server, int(imap_port))
+        mail_client.login(imap_username, imap_password)
+        
+        # Seleziona la mailbox
+        status, data = mail_client.select(imap_mailbox)
+        if status != "OK":
+            print(f"Mailbox '{imap_mailbox}' non trovata. Ricado su INBOX.")
+            status, data = mail_client.select("INBOX")
+            if status != "OK":
+                print("Impossibile selezionare INBOX.")
+                mail_client.logout()
+                return 0
+        
+        status, messages = mail_client.search(None, "ALL")
+        if status != "OK" or not messages[0]:
+            print("Nessun messaggio trovato nella mailbox.")
+            mail_client.logout()
+            return 0
+            
+        message_ids = messages[0].split()
+        print(f"Trovate {len(message_ids)} email totali sul server IMAP.")
+        
+        # Invertiamo la lista per iniziare dalle più recenti
+        message_ids.reverse()
+        
+        exclude_senders = mail_settings.get("exclude_senders", [])
+        exclude_domains = mail_settings.get("exclude_domains", [])
+        exclude_subjects = mail_settings.get("exclude_subjects", [])
+        
+        keywords_pattern = re.compile(
+            r'\b(?:'
+            r'iscritti|iscritt[oa]|iscrizione|iscrizioni|'
+            r'report|'
+            r'ade|adm|usb|mef|'
+            r'partecipanti|partecipante|partecipazione|partecipazioni|'
+            r'anagrafica|'
+            r'corso|corsi|'
+            r'soci|socio|socia|'
+            r'paypal|'
+            r'banca|'
+            r'estratto|'
+            r'registrazione|registrazioni|'
+            r'conferma|'
+            r'pagamento|pagamenti|'
+            r'donazione|donazioni|'
+            r'tesseramento|'
+            r'bonifico|bonifici|'
+            r'ricevuta|ricevute|'
+            r'adesione|adesioni'
+            r')\b',
+            re.IGNORECASE
+        )
+        
+        strict_body_pattern = re.compile(
+            r'\b(?:'
+            r'iscrizione|iscrizioni|iscritt[oa]|'
+            r'registrazione|registrazioni|'
+            r'adesione|adesioni|'
+            r'tesseramento|'
+            r'paypal|'
+            r'donazione|donazioni'
+            r')\b',
+            re.IGNORECASE
+        )
+        
+        new_synced = 0
+        
+        for msg_uid_bytes in message_ids:
+            msg_uid = msg_uid_bytes.decode()
+            filename = f"imap_{msg_uid}.md"
+            filepath = os.path.join(raw_mail_dir, filename)
+            
+            if os.path.exists(filepath):
+                continue
+                
+            status, header_data = mail_client.fetch(msg_uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE)])")
+            if status != "OK" or not header_data:
+                continue
+                
+            header_text = ""
+            for response_part in header_data:
+                if isinstance(response_part, tuple):
+                    header_text = response_part[1].decode("utf-8", errors="ignore")
+                    break
+            
+            subject = ""
+            sender = ""
+            date_str = ""
+            
+            for line in header_text.splitlines():
+                if line.lower().startswith("subject:"):
+                    subject = decode_mime_header(line[8:].strip())
+                elif line.lower().startswith("from:"):
+                    sender = decode_mime_header(line[5:].strip())
+                elif line.lower().startswith("date:"):
+                    date_str = line[5:].strip()
+            
+            sender_lower = sender.lower()
+            subject_lower = subject.lower()
+            
+            if any(exc in sender_lower for exc in exclude_senders) or \
+               any(dom in sender_lower for dom in exclude_domains) or \
+               any(subj in subject_lower for subj in exclude_subjects):
+                continue
+                
+            is_relevant = bool(keywords_pattern.search(subject))
+            
+            if not is_relevant:
+                clean_sender = sender.replace('"', '\\"')
+                clean_subject = subject.replace('"', '\\"')
+                md_content = f"""---
+type: email
+message_id: "imap_{msg_uid}"
+sender: "{clean_sender}"
+subject: "{clean_subject}"
+date: "{date_str}"
+---
+
+# {subject}
+
+**Da**: {sender}  
+**Data**: {date_str}  
+
+## Contenuto del Messaggio
+
+[Corpo non scaricato - email di servizio/non rilevante]
+"""
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(md_content)
+                continue
+                
+            status, msg_data = mail_client.fetch(msg_uid, "(BODY.PEEK[])")
+            if status != "OK" or not msg_data:
+                continue
+                
+            raw_email_content = None
+            for response_part in msg_data:
+                if isinstance(response_part, tuple):
+                    raw_email_content = response_part[1]
+                    break
+                    
+            if not raw_email_content:
+                continue
+                
+            msg = email.message_from_bytes(raw_email_content, policy=default)
+            
+            body_text = ""
+            attachments_sections = []
+            
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                content_disposition = str(part.get("Content-Disposition"))
+                
+                if "attachment" in content_disposition:
+                    filename_att = part.get_filename()
+                    if filename_att:
+                        filename_att = decode_mime_header(filename_att)
+                        _, ext = os.path.splitext(filename_att.lower())
+                        save_att = False
+                        if ext in [".csv", ".xlsx", ".xls", ".pdf", ".docx", ".doc", ".txt", ".md"]:
+                            att_name_lower = filename_att.lower()
+                            keywords_att = [
+                                "iscritti", "report", "ade", "adm", "usb", "mef", 
+                                "partecipanti", "anagrafica", "corso", "soci", 
+                                "paypal", "banca", "estratto", "tessera", "donazione"
+                            ]
+                            if any(k in att_name_lower for k in keywords_att) or ext == ".pdf":
+                                save_att = True
+                                
+                        if save_att:
+                            att_filename = f"imap_{msg_uid}_{filename_att}"
+                            att_filepath = os.path.join(attachments_dir, att_filename)
+                            
+                            payload = part.get_payload(decode=True)
+                            if payload:
+                                with open(att_filepath, "wb") as f:
+                                    f.write(payload)
+                                    
+                                extracted_text = ""
+                                if ext == ".pdf":
+                                    extracted_text = extract_pdf_text(att_filepath)
+                                elif ext in [".docx", ".doc"]:
+                                    extracted_text = extract_docx_text(att_filepath)
+                                elif ext in [".txt", ".md"]:
+                                    try:
+                                        extracted_text = payload.decode("utf-8", errors="ignore")
+                                    except Exception as e:
+                                        extracted_text = f"[Errore lettura file di testo: {e}]"
+                                        
+                                if extracted_text:
+                                    att_section = f"\n---\n### Allegato Estratto: {filename_att}\n\n{extracted_text}\n"
+                                    attachments_sections.append(att_section)
+                
+                elif content_type == "text/plain" and not body_text:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body_text = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
+                elif content_type == "text/html" and not body_text:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        html_content = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
+                        body_text = extract_body_from_mime(html_content)
+                        
+            if not body_text:
+                try:
+                    body = msg.get_body(preferencelist=('plain', 'html'))
+                    if body:
+                        body_text = body.get_content()
+                except Exception:
+                    body_text = "[Nessun contenuto di testo estraibile]"
+                    
+            clean_sender = sender.replace('"', '\\"')
+            clean_subject = subject.replace('"', '\\"')
+            
+            md_content = f"""---
+type: email
+message_id: "imap_{msg_uid}"
+sender: "{clean_sender}"
+subject: "{clean_subject}"
+date: "{date_str}"
+---
+
+# {subject}
+
+**Da**: {sender}  
+**Data**: {date_str}  
+
+## Contenuto del Messaggio
+
+{body_text.strip()}
+"""
+
+            if attachments_sections:
+                md_content += "\n## Allegati ed Estratti Contenuto\n"
+                for section in attachments_sections:
+                    md_content += section
+                    
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(md_content)
+                
+            new_synced += 1
+            
+        mail_client.logout()
+        print(f"Sincronizzazione IMAP completata. Scaricate {new_synced} nuove email rilevanti.")
+        return new_synced
+        
+    except Exception as e:
+        print(f"Errore durante la sincronizzazione IMAP: {e}")
+        return 0
+
 
 def run_applescript(script: str) -> str:
     """
@@ -193,10 +492,13 @@ date: "{date_str}"
 
 def apple_mail_sync_to_raw() -> int:
     """
-    Sincronizza le email dall'app Apple Mail (macOS) in modo ottimizzato in 3 fasi.
+    Sincronizza le email. Se IMAP è configurato nel file .env usa il server mail direttamente, altrimenti ricade su Apple Mail (macOS).
     """
+    if os.getenv("IMAP_SERVER"):
+        return imap_sync_to_raw()
+        
     if sys.platform != "darwin":
-        print("Sorgente Apple Mail ignorata: supportata solo su macOS.")
+        print("Sorgente Mail ignorata: supportata solo su macOS oppure tramite server IMAP configurato in .env.")
         return 0
         
     vault_path = get_vault_path()
