@@ -53,7 +53,7 @@ async function startSock() {
     console.log('Inizializzazione sessione WhatsApp...');
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     
-    const sock = makeWASocket.default({
+    const sock = makeWASocket({
         auth: state,
         printQRInTerminal: false // Lo gestiamo noi manualmente per stampare messaggi chiari
     });
