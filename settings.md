@@ -16,13 +16,13 @@ sources:
     calendar_database_id: "eaabfc93f45548779832470db0ea60e9"          # ID del database eventi/appuntamenti Notion
     tasks_database_id: "d73ddfa6f4524279be2b2956a17aab45"             # ID del database task Notion
   google_drive:
-    enabled: true
+    enabled: false
     use_api: false
     folder_id: ""                     # ID della cartella Google Drive (es. dal link di condivisione)
     resource_key: ""                  # Chiave risorsa (opzionale, es. dal link se richiesto)
     local_path: "~/Google Drive/Il mio Drive"
   apple_mail:
-    enabled: true                     # Imposta a true per abilitare Apple Mail
+    enabled: false                    # Imposta a true per abilitare Apple Mail
     sync_all_accounts: true           # Imposta a true per sincronizzare tutti gli account configurati
     account_prefix: ""                # Prefisso degli account mail da sincronizzare (es. "SB-", lasciare vuoto per tutti)
     mailbox: "SecondBrain"            # Utilizzato solo se sync_all_accounts è false
@@ -48,7 +48,7 @@ sources:
 
 
   web:
-    enabled: true
+    enabled: false
     urls:
       - "https://www.thetoolnerd.com/p/step-by-step-guide-build-your-own-second-brain-obsidian-kaparthy"
       - "https://medium.com/@roanmonteiro/building-a-complete-personal-harness-llm-wiki-developers-second-brain-in-obsidian-d7b61c7398ff"
