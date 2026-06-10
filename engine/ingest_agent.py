@@ -17,6 +17,7 @@ from engine.tools.vault_tools import (
     read_raw_file,
     write_wiki_page,
     save_processed_file,
+    save_processed_files_batch,
     append_to_log,
     update_index,
     search_wiki
@@ -276,7 +277,7 @@ def get_category_folder(title: str, body: str = "") -> str:
             return category
     return "General"
 
-async def ingest_file(config: LocalAgentConfig, rel_path: str, existing_concepts: list, aliases_map: dict) -> bool:
+async def ingest_file(config: LocalAgentConfig, rel_path: str, existing_concepts: list, aliases_map: dict, write_lock: asyncio.Lock = None, newly_processed: list = None) -> bool:
     print(f"Elaborazione file: {rel_path}...")
     try:
         content = read_raw_file(rel_path)
@@ -300,8 +301,13 @@ async def ingest_file(config: LocalAgentConfig, rel_path: str, existing_concepts
             for x in exclude_senders:
                 if x.strip() and x.lower() in sender:
                     print(f"  - Pre-filtro: Saltato '{rel_path}' (mittente '{sender}' escluso da '{x}')")
-                    save_processed_file(rel_path)
-                    append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (mittente escluso: '{x}')")
+                    if write_lock is not None and newly_processed is not None:
+                        async with write_lock:
+                            newly_processed.append(rel_path)
+                            append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (mittente escluso: '{x}')")
+                    else:
+                        save_processed_file(rel_path)
+                        append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (mittente escluso: '{x}')")
                     return True
                     
             # Esclusione per dominio del mittente
@@ -309,8 +315,13 @@ async def ingest_file(config: LocalAgentConfig, rel_path: str, existing_concepts
             for x in exclude_domains:
                 if x.strip() and x.lower() in sender:
                     print(f"  - Pre-filtro: Saltato '{rel_path}' (dominio '{sender}' escluso da '{x}')")
-                    save_processed_file(rel_path)
-                    append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (dominio escluso: '{x}')")
+                    if write_lock is not None and newly_processed is not None:
+                        async with write_lock:
+                            newly_processed.append(rel_path)
+                            append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (dominio escluso: '{x}')")
+                    else:
+                        save_processed_file(rel_path)
+                        append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (dominio escluso: '{x}')")
                     return True
                     
             # Esclusione per parole chiave nell'oggetto
@@ -318,18 +329,65 @@ async def ingest_file(config: LocalAgentConfig, rel_path: str, existing_concepts
             for x in exclude_subjects:
                 if x.strip() and x.lower() in subject:
                     print(f"  - Pre-filtro: Saltato '{rel_path}' (oggetto contiene '{x}')")
-                    save_processed_file(rel_path)
-                    append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (oggetto contiene parole chiave escluse: '{x}')")
+                    if write_lock is not None and newly_processed is not None:
+                        async with write_lock:
+                            newly_processed.append(rel_path)
+                            append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (oggetto contiene parole chiave escluse: '{x}')")
+                    else:
+                        save_processed_file(rel_path)
+                        append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (oggetto contiene parole chiave escluse: '{x}')")
                     return True
         except Exception as e:
             print(f"Avviso: errore durante l'applicazione del pre-filtro statico per {rel_path}: {e}")
             
-    # Local Entity Resolution: extract candidate entities for limited context
-    suggested_entities = extract_candidate_entities(content, aliases_map)
-    suggested_names_paths = [f"- {e['canonical']} (percorso: [[{e['path']}]])" for e in suggested_entities]
-    suggested_entities_str = "\n".join(suggested_names_paths) if suggested_names_paths else "Nessuna entità corrispondente trovata nel vault."
+    # 1b. Check if the file is empty or has no meaningful content
+    lines = [l for l in content.split('\n') if l.strip()]
+    body_lines = [l for l in lines if not l.startswith('#') and not l.startswith('Source:') and not l.startswith('type:') and not l.startswith('date:')]
+    body_content = '\n'.join(body_lines).strip()
+    
+    is_empty_or_short = len(body_content) < 10
+    
+    data = None
+    if is_empty_or_short:
+        if any(x in rel_path for x in ["raw/notion/", "raw/calendar/", "raw/tasks/"]):
+            # Direct ingestion of empty/short Notion/Calendar/Tasks files with default structure (no LLM call)
+            source_type = "notion"
+            if "raw/calendar/" in rel_path:
+                source_type = "calendar"
+            elif "raw/tasks/" in rel_path:
+                source_type = "tasks"
+                
+            data = {
+                "is_noise": False,
+                "source_summary": {
+                    "title": os.path.basename(rel_path).replace(".md", ""),
+                    "summary": "Importato automaticamente da Notion/Calendario/Task.",
+                    "key_points": ["Importato da Notion/Calendario/Task"],
+                    "tags": [source_type]
+                },
+                "concepts": [],
+                "entities": []
+            }
+            print(f"  - Ingestione diretta (senza LLM) per file Notion/Calendar/Tasks corto/vuoto: '{rel_path}'")
+        else:
+            # Skip other empty/short files entirely (e.g. empty emails, empty web articles)
+            print(f"  - Pre-filtro: Saltato '{rel_path}' (file vuoto o privo di contenuto)")
+            if write_lock is not None and newly_processed is not None:
+                async with write_lock:
+                    newly_processed.append(rel_path)
+                    append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (file vuoto)")
+            else:
+                save_processed_file(rel_path)
+                append_to_log(f"[AI Ingest - Pre-filtro] Saltato '{rel_path}' (file vuoto)")
+            return True
+            
+    if data is None:
+        # Local Entity Resolution: extract candidate entities for limited context
+        suggested_entities = extract_candidate_entities(content, aliases_map)
+        suggested_names_paths = [f"- {e['canonical']} (percorso: [[{e['path']}]])" for e in suggested_entities]
+        suggested_entities_str = "\n".join(suggested_names_paths) if suggested_names_paths else "Nessuna entità corrispondente trovata nel vault."
 
-    prompt = f"""
+        prompt = f"""
 Hai il compito di elaborare la seguente sorgente grezza e integrarla nella wiki.
 Percorso file: {rel_path}
 Contenuto del file:
@@ -377,32 +435,32 @@ Genera un output JSON strutturato che rispecchi esattamente questo schema Pydant
 ```
 Restituisci solo ed esclusivamente il blocco JSON.
 """
-    
-    system_instructions = config.system_instructions
-    try:
-        resp_text = await call_llm_with_fallback(prompt, system_instructions, config)
-    except Exception as e:
-        print(f"Errore critico durante l'elaborazione del file {rel_path} con tutti i provider: {e}")
-        return False
         
-    try:
-        # Extract JSON from markdown code block
-        json_match = re.search(r"```json\s*(.*?)\s*```", resp_text, re.DOTALL)
-        json_str = json_match.group(1) if json_match else resp_text.strip()
-        
-        # Parse first to clean/normalize keys
-        parsed_json = json.loads(json_str)
-        if parsed_json.get("is_noise", False) or parsed_json.get("source_summary") == {}:
-            parsed_json["source_summary"] = None
+        system_instructions = config.system_instructions
+        try:
+            resp_text = await call_llm_with_fallback(prompt, system_instructions, config)
+        except Exception as e:
+            print(f"Errore critico durante l'elaborazione del file {rel_path} con tutti i provider: {e}")
+            return False
             
-        # Pydantic validation
-        response_data = WikiIngestResponse.model_validate(parsed_json)
-        data = response_data.model_dump()
-    except Exception as e:
-        print(f"Errore durante l'estrazione LLM o parsing JSON/Pydantic per {rel_path}: {e}")
-        if 'resp_text' in locals():
-            print(f"Risposta ricevuta dal modello:\n{resp_text}")
-        return False
+        try:
+            # Extract JSON from markdown code block
+            json_match = re.search(r"```json\s*(.*?)\s*```", resp_text, re.DOTALL)
+            json_str = json_match.group(1) if json_match else resp_text.strip()
+            
+            # Parse first to clean/normalize keys
+            parsed_json = json.loads(json_str)
+            if parsed_json.get("is_noise", False) or parsed_json.get("source_summary") == {}:
+                parsed_json["source_summary"] = None
+                
+            # Pydantic validation
+            response_data = WikiIngestResponse.model_validate(parsed_json)
+            data = response_data.model_dump()
+        except Exception as e:
+            print(f"Errore durante l'estrazione LLM o parsing JSON/Pydantic per {rel_path}: {e}")
+            if 'resp_text' in locals():
+                print(f"Risposta ricevuta dal modello:\n{resp_text}")
+            return False
         
     # 2. LIVELLO 2: Post-filtro semantico per lo spam e il rumore
     is_noise = data.get("is_noise", False)
@@ -421,139 +479,156 @@ Restituisci solo ed esclusivamente il blocco JSON.
             
     if is_noise:
         print(f"  - Post-filtro: Saltato '{rel_path}' (identificato come rumore/spam dall'LLM)")
-        save_processed_file(rel_path)
-        append_to_log(f"[AI Ingest - Post-filtro] Saltato '{rel_path}' (identificato come rumore/spam)")
+        if write_lock is not None and newly_processed is not None:
+            async with write_lock:
+                newly_processed.append(rel_path)
+                append_to_log(f"[AI Ingest - Post-filtro] Saltato '{rel_path}' (identificato come rumore/spam)")
+        else:
+            save_processed_file(rel_path)
+            append_to_log(f"[AI Ingest - Post-filtro] Saltato '{rel_path}' (identificato come rumore/spam)")
         return True
         
     # Write files
-    # 1. Source page
-    source_summary = data.get("source_summary", {}) or {}
-    source_title = source_summary.get("title", os.path.basename(rel_path).replace(".md", ""))
-    clean_title = re.sub(r'[\\/*?:"<>|]', "", source_title)
-    
-    source_path = find_existing_page(vault_path, "sources", clean_title)
-    if not source_path:
-        category = get_category_folder(source_title, source_summary.get("summary", ""))
-        category = resolve_category_folder(vault_path, "sources", category)
-        source_path = f"wiki/sources/{category}/{clean_title}.md"
-    
-    source_body = f"# {source_title}\n\n{source_summary.get('summary', '')}\n\n## Punti Chiave\n"
-    for pt in source_summary.get("key_points", []):
-        source_body += f"- {pt}\n"
-    source_body += f"\n---\n**Fonte Originale**: {rel_path}\n"
-    
-    source_fm = {
-        "type": "source",
-        "tags": source_summary.get("tags", []),
-        "original_file": rel_path
-    }
-    
-    write_wiki_page(source_path, source_body, source_fm)
-    update_index(source_path, source_summary.get("summary", "")[:100])
-    
-    # Salva su ChromaDB
-    try:
-        db = get_vector_db()
-        db.upsert_chunks(source_path, source_title, chunk_text(source_body))
-    except Exception as e:
-        print(f"Errore salvataggio vettore per {source_path}: {e}")
-    
-    # 2. Concept pages
-    for concept in data.get("concepts", []):
-        c_name = concept.get("name")
-        if not c_name:
-            continue
-        c_clean = re.sub(r'[\\/*?:"<>|]', "", c_name)
+    async def perform_writes():
+        # 1. Source page
+        source_summary = data.get("source_summary", {}) or {}
+        source_title = source_summary.get("title", os.path.basename(rel_path).replace(".md", ""))
+        clean_title = re.sub(r'[\\/*?:"<>|]', "", source_title)
         
-        c_path = find_existing_page(vault_path, "concepts", c_clean)
-        if not c_path:
-            category = get_category_folder(c_name, concept.get("description", ""))
-            category = resolve_category_folder(vault_path, "concepts", category)
-            c_path = f"wiki/concepts/{category}/{c_clean}.md"
+        source_path = find_existing_page(vault_path, "sources", clean_title)
+        if not source_path:
+            category = get_category_folder(source_title, source_summary.get("summary", ""))
+            category = resolve_category_folder(vault_path, "sources", category)
+            source_path = f"wiki/sources/{category}/{clean_title}.md"
         
-        c_body = ""
-        c_fm = {"type": "concept", "related": concept.get("related", [])}
-        if os.path.exists(os.path.join(vault_path, c_path)):
-            try:
-                with open(os.path.join(vault_path, c_path), "r", encoding="utf-8") as f:
-                    c_old_fm, c_old_body = parse_markdown(f.read())
-                    c_body = c_old_body + "\n\n"
-                    c_fm = c_old_fm
-                    old_rel = c_old_fm.get("related", [])
-                    c_fm["related"] = list(set(old_rel + concept.get("related", [])))
-            except Exception:
-                pass
-                
-        c_body += f"### Aggiornamento da [[{clean_title}]]\n{concept.get('description', '')}\n"
+        source_body = f"# {source_title}\n\n{source_summary.get('summary', '')}\n\n## Punti Chiave\n"
+        for pt in source_summary.get("key_points", []):
+            source_body += f"- {pt}\n"
+        source_body += f"\n---\n**Fonte Originale**: {rel_path}\n"
         
-        write_wiki_page(c_path, c_body, c_fm)
-        update_index(c_path, concept.get("description", "")[:100])
+        source_fm = {
+            "type": "source",
+            "tags": source_summary.get("tags", []),
+            "original_file": rel_path
+        }
         
+        write_wiki_page(source_path, source_body, source_fm)
+        update_index(source_path, source_summary.get("summary", "")[:100])
+        
+        # Salva su ChromaDB
         try:
             db = get_vector_db()
-            db.upsert_chunks(c_path, c_clean, chunk_text(c_body))
+            db.upsert_chunks(source_path, source_title, chunk_text(source_body))
         except Exception as e:
-            print(f"Errore salvataggio vettore per {c_path}: {e}")
+            print(f"Errore salvataggio vettore per {source_path}: {e}")
         
-    # 3. Entity pages
-    for entity in data.get("entities", []):
-        e_name = entity.get("name")
-        if not e_name:
-            continue
-        
-        is_existing = entity.get("is_existing", False)
-        canonical_name = entity.get("canonical_name")
-        
-        # Use canonical name if mapped, else extracted name
-        target_name = canonical_name if (is_existing and canonical_name) else e_name
-        e_clean = re.sub(r'[\\/*?:"<>|]', "", target_name)
-        
-        e_path = None
-        if is_existing and canonical_name:
-            # Check pre-loaded aliases_map
-            matched_entry = aliases_map.get(canonical_name.lower())
-            if matched_entry:
-                e_path = matched_entry["path"]
-                
-        if not e_path:
-            e_path = find_existing_page(vault_path, "entities", e_clean)
+        # 2. Concept pages
+        for concept in data.get("concepts", []):
+            c_name = concept.get("name")
+            if not c_name:
+                continue
+            c_clean = re.sub(r'[\\/*?:"<>|]', "", c_name)
             
-        if not e_path:
-            category = get_category_folder(target_name, entity.get("description", ""))
-            category = resolve_category_folder(vault_path, "entities", category)
-            e_path = f"wiki/entities/{category}/{e_clean}.md"
-        
-        e_body = ""
-        e_type = entity.get("entity_type", "entity")
-        if e_type not in ["person", "organization", "project", "event", "appointment", "microtheme", "entity"]:
-            e_type = "entity"
-        e_fm = {"type": e_type}
-        if os.path.exists(os.path.join(vault_path, e_path)):
+            c_path = find_existing_page(vault_path, "concepts", c_clean)
+            if not c_path:
+                category = get_category_folder(c_name, concept.get("description", ""))
+                category = resolve_category_folder(vault_path, "concepts", category)
+                c_path = f"wiki/concepts/{category}/{c_clean}.md"
+            
+            c_body = ""
+            c_fm = {"type": "concept", "related": concept.get("related", [])}
+            if os.path.exists(os.path.join(vault_path, c_path)):
+                try:
+                    with open(os.path.join(vault_path, c_path), "r", encoding="utf-8") as f:
+                        c_old_fm, c_old_body = parse_markdown(f.read())
+                        c_body = c_old_body + "\n\n"
+                        c_fm = c_old_fm
+                        old_rel = c_old_fm.get("related", [])
+                        c_fm["related"] = list(set(old_rel + concept.get("related", [])))
+                except Exception:
+                    pass
+                    
+            c_body += f"### Aggiornamento da [[{clean_title}]]\n{concept.get('description', '')}\n"
+            
+            write_wiki_page(c_path, c_body, c_fm)
+            update_index(c_path, concept.get("description", "")[:100])
+            
             try:
-                with open(os.path.join(vault_path, e_path), "r", encoding="utf-8") as f:
-                    e_old_fm, e_old_body = parse_markdown(f.read())
-                    e_body = e_old_body + "\n\n"
-                    # Preserve all existing metadata fields (aliases, phone, email, etc.)
-                    e_fm = e_old_fm
-                    if "type" not in e_fm or e_fm["type"] == "entity":
-                        e_fm["type"] = e_type
-            except Exception:
-                pass
+                db = get_vector_db()
+                db.upsert_chunks(c_path, c_clean, chunk_text(c_body))
+            except Exception as e:
+                print(f"Errore salvataggio vettore per {c_path}: {e}")
+            
+        # 3. Entity pages
+        for entity in data.get("entities", []):
+            e_name = entity.get("name")
+            if not e_name:
+                continue
+            
+            is_existing = entity.get("is_existing", False)
+            canonical_name = entity.get("canonical_name")
+            
+            # Use canonical name if mapped, else extracted name
+            target_name = canonical_name if (is_existing and canonical_name) else e_name
+            e_clean = re.sub(r'[\\/*?:"<>|]', "", target_name)
+            
+            e_path = None
+            if is_existing and canonical_name:
+                # Check pre-loaded aliases_map
+                matched_entry = aliases_map.get(canonical_name.lower())
+                if matched_entry:
+                    e_path = matched_entry["path"]
+                    
+            if not e_path:
+                e_path = find_existing_page(vault_path, "entities", e_clean)
                 
-        e_body += f"### Aggiornamento da [[{clean_title}]]\n{entity.get('description', '')}\n"
+            if not e_path:
+                category = get_category_folder(target_name, entity.get("description", ""))
+                category = resolve_category_folder(vault_path, "entities", category)
+                e_path = f"wiki/entities/{category}/{e_clean}.md"
+            
+            e_body = ""
+            e_type = entity.get("entity_type", "entity")
+            if e_type not in ["person", "organization", "project", "event", "appointment", "microtheme", "entity"]:
+                e_type = "entity"
+            e_fm = {"type": e_type}
+            if os.path.exists(os.path.join(vault_path, e_path)):
+                try:
+                    with open(os.path.join(vault_path, e_path), "r", encoding="utf-8") as f:
+                        e_old_fm, e_old_body = parse_markdown(f.read())
+                        e_body = e_old_body + "\n\n"
+                        # Preserve all existing metadata fields (aliases, phone, email, etc.)
+                        e_fm = e_old_fm
+                        if "type" not in e_fm or e_fm["type"] == "entity":
+                            e_fm["type"] = e_type
+                except Exception:
+                    pass
+                    
+            e_body += f"### Aggiornamento da [[{clean_title}]]\n{entity.get('description', '')}\n"
+            
+            write_wiki_page(e_path, e_body, e_fm)
+            update_index(e_path, entity.get("description", "")[:100])
+            
+            try:
+                db = get_vector_db()
+                db.upsert_chunks(e_path, target_name, chunk_text(e_body))
+            except Exception as e:
+                print(f"Errore salvataggio vettore per {e_path}: {e}")
+            
+        if newly_processed is not None:
+            newly_processed.append(rel_path)
+        else:
+            save_processed_file(rel_path)
+            
+        append_to_log(f"[AI Ingest] Elaborato '{rel_path}' -> Creato source [[{clean_title}]]")
+        print(f"Completata elaborazione per: {rel_path}")
+
+    if write_lock is not None:
+        async with write_lock:
+            await perform_writes()
+    else:
+        await perform_writes()
         
-        write_wiki_page(e_path, e_body, e_fm)
-        update_index(e_path, entity.get("description", "")[:100])
-        
-        try:
-            db = get_vector_db()
-            db.upsert_chunks(e_path, target_name, chunk_text(e_body))
-        except Exception as e:
-            print(f"Errore salvataggio vettore per {e_path}: {e}")
-        
-    save_processed_file(rel_path)
-    append_to_log(f"[AI Ingest] Elaborato '{rel_path}' -> Creato source [[{clean_title}]]")
-    print(f"Completata elaborazione per: {rel_path}")
     return True
 
 async def run_ingest(dry_run: bool = False, source_filter: str = None):
@@ -587,6 +662,61 @@ async def run_ingest(dry_run: bool = False, source_filter: str = None):
             print(f"- {u}")
         return
         
+    # Setup Agent settings
+    settings = load_settings(vault_path)
+    
+    # 1. Filtro statico iniziale per mail
+    print("Applicazione del pre-filtro statico per le mail...")
+    mail_settings = settings.get("sources", {}).get("apple_mail", {})
+    exclude_senders = [x.strip().lower() for x in mail_settings.get("exclude_senders", []) if x.strip()]
+    exclude_domains = [x.strip().lower() for x in mail_settings.get("exclude_domains", []) if x.strip()]
+    exclude_subjects = [x.strip().lower() for x in mail_settings.get("exclude_subjects", []) if x.strip()]
+    
+    skipped_mails = []
+    filtered_unprocessed = []
+    
+    for rel_path in unprocessed:
+        if rel_path.startswith("raw/mail/"):
+            try:
+                content = read_raw_file(rel_path)
+                fm, _ = parse_markdown(content)
+                sender = fm.get("sender", "").lower()
+                subject = fm.get("subject", "").lower()
+                
+                is_skipped = False
+                for x in exclude_senders:
+                    if x in sender:
+                        is_skipped = True
+                        break
+                if not is_skipped:
+                    for x in exclude_domains:
+                        if x in sender:
+                            is_skipped = True
+                            break
+                if not is_skipped:
+                    for x in exclude_subjects:
+                        if x in subject:
+                            is_skipped = True
+                            break
+                            
+                if is_skipped:
+                    skipped_mails.append(rel_path)
+                    continue
+            except Exception as e:
+                print(f"Avviso: errore durante la pre-elaborazione di {rel_path}: {e}")
+        filtered_unprocessed.append(rel_path)
+        
+    if skipped_mails:
+        print(f"Pre-filtro: Saltate {len(skipped_mails)} mail escluse. Aggiornamento manifest...")
+        save_processed_files_batch(skipped_mails)
+        append_to_log(f"[AI Ingest - Pre-filtro] Saltate {len(skipped_mails)} mail escluse da regole mittente/oggetto")
+        
+    unprocessed = filtered_unprocessed
+    
+    if not unprocessed:
+        print("Tutti i file sono stati saltati dai pre-filtri.")
+        return
+        
     # Walk existing concepts once to cache them
     existing_concepts = []
     concepts_dir = os.path.join(vault_path, "wiki", "concepts")
@@ -601,8 +731,6 @@ async def run_ingest(dry_run: bool = False, source_filter: str = None):
     aliases_map = load_aliases_map(vault_path)
     print(f"Indice alias caricato con successo ({len(aliases_map)} chiavi).")
         
-    # Setup Agent
-    settings = load_settings(vault_path)
     model = settings.get("models", {}).get("ingest_agent", "gemini-3.5-flash")
     instructions = get_agent_instructions("Ingest Agent")
     
@@ -624,14 +752,37 @@ async def run_ingest(dry_run: bool = False, source_filter: str = None):
     print(f"Avvio Ingest Agent con modello '{model}'...")
     processed_count = 0
     batch_size = 10
-    for rel_path in unprocessed:
-        success = await ingest_file(config, rel_path, existing_concepts, aliases_map)
-        if success:
-            processed_count += 1
-            if processed_count % batch_size == 0:
-                print(f"Salvataggio progresso: commit incrementale di {processed_count} file elaborati...")
-                auto_commit(vault_path, f"[AI Ingest] Elaborazione parziale: {processed_count} file sorgente")
-        await asyncio.sleep(2)
+    
+    # Concorrenza asincrona parallela
+    concurrency_limit = 5
+    semaphore = asyncio.Semaphore(concurrency_limit)
+    write_lock = asyncio.Lock()
+    newly_processed = []
+    
+    async def worker(rel_path):
+        async with semaphore:
+            try:
+                success = await ingest_file(config, rel_path, existing_concepts, aliases_map, write_lock, newly_processed)
+                if success:
+                    async with write_lock:
+                        nonlocal processed_count
+                        processed_count += 1
+                        if processed_count % batch_size == 0:
+                            print(f"Salvataggio progresso: commit incrementale di {processed_count} file elaborati...")
+                            if newly_processed:
+                                save_processed_files_batch(newly_processed)
+                                newly_processed.clear()
+                            auto_commit(vault_path, f"[AI Ingest] Elaborazione parziale: {processed_count} file sorgente")
+            except Exception as e:
+                print(f"Errore worker durante elaborazione di {rel_path}: {e}")
+                
+    # Avvia tutti i compiti
+    tasks = [asyncio.create_task(worker(path)) for path in unprocessed]
+    await asyncio.gather(*tasks)
+    
+    # Salva i file rimanenti
+    if newly_processed:
+        save_processed_files_batch(newly_processed)
             
     if processed_count > 0:
         if processed_count % batch_size != 0:

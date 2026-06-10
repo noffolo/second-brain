@@ -45,6 +45,25 @@ def save_processed_file(relative_path: str):
     except Exception as e:
         print(f"Errore nel salvare il manifest: {e}")
 
+def save_processed_files_batch(relative_paths: list[str]):
+    path = get_processed_manifest_path()
+    processed = load_processed_files()
+    
+    vault_path = get_vault_path()
+    for rel_path in relative_paths:
+        abs_path = os.path.join(vault_path, rel_path)
+        mtime = 0.0
+        if os.path.exists(abs_path):
+            mtime = os.path.getmtime(abs_path)
+        processed[rel_path] = mtime
+        
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(processed, f, indent=4)
+    except Exception as e:
+        print(f"Errore nel salvare il manifest in batch: {e}")
+
 def read_raw_file(relative_path: str) -> str:
     """
     Legge il contenuto di un file sorgente in raw/ o di un verbale in Meetings/.

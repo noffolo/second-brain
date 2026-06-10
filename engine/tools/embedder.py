@@ -23,25 +23,51 @@ def get_client() -> genai.Client:
             raise ValueError("GEMINI_API_KEY is not set correctly. Usa Vertex AI oppure inserisci una chiave.")
         return genai.Client(api_key=api_key)
 
+_embedding_quota_exhausted = False
+
 def get_embedding(text: str) -> List[float]:
+    global _embedding_quota_exhausted
+    if _embedding_quota_exhausted:
+        return []
     if not text.strip():
         return []
-    client = get_client()
-    result = client.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=text,
-    )
-    return result.embeddings[0].values
+    try:
+        client = get_client()
+        result = client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=text,
+        )
+        return result.embeddings[0].values
+    except Exception as e:
+        err_msg = str(e)
+        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+            print("[Embedder] Quota embedding esaurita (429 RESOURCE_EXHAUSTED). Disabilitazione temporanea degli embedding per questa sessione.")
+            _embedding_quota_exhausted = True
+        else:
+            print(f"[Embedder] Errore imprevisto durante l'embedding: {e}")
+        return []
 
 def get_query_embedding(query: str) -> List[float]:
+    global _embedding_quota_exhausted
+    if _embedding_quota_exhausted:
+        return []
     if not query.strip():
         return []
-    client = get_client()
-    result = client.models.embed_content(
-        model=EMBEDDING_MODEL,
-        contents=query,
-    )
-    return result.embeddings[0].values
+    try:
+        client = get_client()
+        result = client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=query,
+        )
+        return result.embeddings[0].values
+    except Exception as e:
+        err_msg = str(e)
+        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+            print("[Embedder] Quota embedding esaurita (429 RESOURCE_EXHAUSTED). Disabilitazione temporanea degli embedding per questa sessione.")
+            _embedding_quota_exhausted = True
+        else:
+            print(f"[Embedder] Errore imprevisto durante l'embedding della query: {e}")
+        return []
 
 def chunk_text(text: str, max_chars: int = 1000, overlap: int = 200) -> List[str]:
     """
