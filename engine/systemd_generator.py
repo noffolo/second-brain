@@ -8,14 +8,14 @@ VAULT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 PYTHON_PATH = sys.executable
 
 def install():
-    """Genera e carica il servizio utente systemd su Linux."""
-    label = "secondbrain"
-    service_file = os.path.join(SYSTEMD_USER_DIR, f"{label}.service")
-    
+    """Genera e carica i servizi utente systemd su Linux."""
     os.makedirs(SYSTEMD_USER_DIR, exist_ok=True)
     
-    # Template per il servizio systemd
-    content = f"""[Unit]
+    # 1. Servizio principale (Dashboard + Watcher + Scheduler)
+    label_main = "secondbrain"
+    service_file_main = os.path.join(SYSTEMD_USER_DIR, f"{label_main}.service")
+    
+    content_main = f"""[Unit]
 Description=Secondo Cervello FastAPI Dashboard & Engine
 After=network.target
 
@@ -31,38 +31,67 @@ StandardError=journal
 [Install]
 WantedBy=default.target
 """
-    print(f"Generazione file di servizio systemd utente: {service_file}...")
-    with open(service_file, "w", encoding="utf-8") as f:
-        f.write(content)
+    print(f"Generazione file di servizio systemd utente (Dashboard): {service_file_main}...")
+    with open(service_file_main, "w", encoding="utf-8") as f:
+        f.write(content_main)
+
+    # 2. Servizio Telegram Bot
+    label_tg = "secondbrain-telegram"
+    service_file_tg = os.path.join(SYSTEMD_USER_DIR, f"{label_tg}.service")
+    
+    content_tg = f"""[Unit]
+Description=Secondo Cervello Telegram Bot Daemon
+After=network.target {label_main}.service
+
+[Service]
+Type=simple
+WorkingDirectory={VAULT_PATH}
+ExecStart={PYTHON_PATH} engine/telegram_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+"""
+    print(f"Generazione file di servizio systemd utente (Telegram): {service_file_tg}...")
+    with open(service_file_tg, "w", encoding="utf-8") as f:
+        f.write(content_tg)
         
     print("Ricaricamento dei demoni systemd utente...")
     subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
     
-    print(f"Abilitazione e avvio del servizio {label}...")
-    res_enable = subprocess.run(["systemctl", "--user", "enable", f"{label}.service"], capture_output=True, text=True)
-    res_start = subprocess.run(["systemctl", "--user", "start", f"{label}.service"], capture_output=True, text=True)
+    print(f"Abilitazione e avvio del servizio {label_main}...")
+    subprocess.run(["systemctl", "--user", "enable", f"{label_main}.service"], capture_output=True)
+    subprocess.run(["systemctl", "--user", "start", f"{label_main}.service"], capture_output=True)
     
-    if res_start.returncode == 0:
-        print(f"\n-> Servizio {label} installato ed avviato in background con successo!")
-        print("NOTA: Per assicurare che il servizio continui a girare sul server anche dopo la disconnessione SSH,")
+    print(f"Abilitazione e avvio del servizio {label_tg}...")
+    res_enable_tg = subprocess.run(["systemctl", "--user", "enable", f"{label_tg}.service"], capture_output=True)
+    res_start_tg = subprocess.run(["systemctl", "--user", "start", f"{label_tg}.service"], capture_output=True, text=True)
+    
+    if res_start_tg.returncode == 0:
+        print(f"\n-> Servizi {label_main} e {label_tg} installati ed avviati in background con successo!")
+        print("NOTA: Per assicurare che i servizi continuino a girare sul server anche dopo la disconnessione SSH,")
         print("esegui il seguente comando una sola volta sul tuo server:")
         print(f"    loginctl enable-linger {os.getlogin() if hasattr(os, 'getlogin') else 'tuo_utente'}")
     else:
-        print(f"Errore durante l'avvio del servizio: {res_start.stderr.strip()}")
+        print(f"Errore durante l'avvio del servizio Telegram: {res_start_tg.stderr.strip()}")
 
 def uninstall():
-    """Arresta e rimuove il servizio utente systemd su Linux."""
-    label = "secondbrain"
-    service_file = os.path.join(SYSTEMD_USER_DIR, f"{label}.service")
+    """Arresta e rimuove i servizi utente systemd su Linux."""
+    labels = ["secondbrain", "secondbrain-telegram"]
     
-    print(f"Arresto del servizio {label}...")
-    subprocess.run(["systemctl", "--user", "stop", f"{label}.service"], capture_output=True)
-    print(f"Disabilitazione del servizio {label}...")
-    subprocess.run(["systemctl", "--user", "disable", f"{label}.service"], capture_output=True)
-    
-    if os.path.exists(service_file):
-        os.remove(service_file)
-        print(f"Rimosso file {service_file}.")
+    for label in labels:
+        print(f"Arresto del servizio {label}...")
+        subprocess.run(["systemctl", "--user", "stop", f"{label}.service"], capture_output=True)
+        print(f"Disabilitazione del servizio {label}...")
+        subprocess.run(["systemctl", "--user", "disable", f"{label}.service"], capture_output=True)
+        
+        service_file = os.path.join(SYSTEMD_USER_DIR, f"{label}.service")
+        if os.path.exists(service_file):
+            os.remove(service_file)
+            print(f"Rimosso file {service_file}.")
         
     print("Ricaricamento dei demoni systemd utente...")
     subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
