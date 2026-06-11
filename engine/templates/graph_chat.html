@@ -870,6 +870,77 @@
             }
         }
 
+        let circleTexture = null;
+        function getCircleTexture() {
+            if (!circleTexture) {
+                const THREE = window.THREE;
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                
+                // Cerchio interno
+                ctx.beginPath();
+                ctx.arc(32, 32, 26, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                
+                // Bordo ad alta definizione per un look morbido e "cool"
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.stroke();
+                
+                circleTexture = new THREE.CanvasTexture(canvas);
+            }
+            return circleTexture;
+        }
+
+        function updateSpriteProperties(node, sprite) {
+            const groupColors = {
+                1: '#9d4edd', // Default (Viola)
+                2: '#00b4d8', // Concetti (Azzurro/Ciano)
+                3: '#38b000', // Entità (Verde)
+                4: '#ffb703', // Sorgenti (Giallo/Oro)
+                5: '#ff7b00', // CRM (Arancione)
+                6: '#e63946', // Riunioni (Rosso)
+                7: '#b5179e'  // Diari (Lilla/Viola chiaro)
+            };
+            let baseColor = groupColors[node.group] || '#9d4edd';
+            let opacity = 0.85;
+            let scaleMultiplier = 1.0;
+            
+            const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
+            const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
+            const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
+            
+            if (node === hoverNode) {
+                baseColor = '#ffffff';
+                scaleMultiplier = 1.6;
+                opacity = 1.0;
+            } else if (hasActiveNodes) {
+                if (isPrimary) {
+                    baseColor = HIGHLIGHT_COLOR; // Ciano neon
+                    scaleMultiplier = 2.0;
+                    opacity = 1.0;
+                } else if (isSecondary) {
+                    scaleMultiplier = 1.3;
+                    opacity = 0.8;
+                } else {
+                    scaleMultiplier = 0.5;
+                    opacity = 0.15; // Sfuma i nodi inattivi
+                }
+            }
+            
+            if (sprite && sprite.material) {
+                sprite.material.color.set(baseColor);
+                sprite.material.opacity = opacity;
+                
+                const baseRadius = Math.max(Math.sqrt(node.val || 1) * 3.5, 6);
+                const finalSize = baseRadius * scaleMultiplier;
+                sprite.scale.set(finalSize, finalSize, 1);
+            }
+        }
+
         function initGraph() {
             try {
                 if (!Graph) {
@@ -883,35 +954,17 @@
                         .height(container.clientHeight)
                         .graphData(graphData)
                         .nodeLabel('id')
-                        .nodeColor(node => {
-                            if (node === hoverNode) return '#fff';
-                            const groupColors = {
-                                1: '#9d4edd', // Default (Viola)
-                                2: '#00b4d8', // Concetti (Azzurro/Ciano)
-                                3: '#38b000', // Entità (Verde)
-                                4: '#ffb703', // Sorgenti (Giallo/Oro)
-                                5: '#ff7b00', // CRM (Arancione)
-                                6: '#e63946', // Riunioni (Rosso)
-                                7: '#b5179e'  // Diari (Lilla/Viola chiaro)
-                            };
-                            const baseColor = groupColors[node.group] || '#9d4edd';
-                            if (window.primaryActiveNodes && window.primaryActiveNodes.size > 0) {
-                                if (window.primaryActiveNodes.has(node.id)) return HIGHLIGHT_COLOR;
-                                if (window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id)) return baseColor;
-                                return 'rgba(255, 255, 255, 0.04)'; // molto tenue per nodi non attivi
-                            }
-                            return baseColor;
+                        // Disegna nodi come cerchi 2D vettoriali (Sprite) ad alte prestazioni
+                        .nodeThreeObject(node => {
+                            const THREE = window.THREE;
+                            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+                                map: getCircleTexture(),
+                                transparent: true,
+                                depthWrite: false // Evita problemi di clipping per sovrapposizioni trasparenti
+                            }));
+                            updateSpriteProperties(node, sprite);
+                            return sprite;
                         })
-                        .nodeVal(node => {
-                            const baseVal = node.val || 1;
-                            if (window.primaryActiveNodes && window.primaryActiveNodes.size > 0) {
-                                if (window.primaryActiveNodes.has(node.id)) return baseVal * 3.5;
-                                if (window.secondaryActiveNodes.has(node.id)) return baseVal * 2.0;
-                                return baseVal * 0.4;
-                            }
-                            return baseVal;
-                        })
-                        .nodeRelSize(NODE_R)
                         .linkColor(link => {
                             const type = getLinkType(link);
                             if (type === 'default') return 'rgba(157, 78, 221, 0.5)'; // Opacità 0.5
@@ -928,27 +981,24 @@
                             if (type === 'weak') return 2.4;    // Raddoppiato da 1.2
                             return 1.2;                        // Raddoppiato da 0.6
                         })
-                        // Neuroni in azione (particelle di energia)
+                        // Neuroni in azione (particelle di energia) limitate per evitare lag
                         .linkDirectionalParticles(link => {
                             const type = getLinkType(link);
                             if (isGraphThinking) {
-                                // Fase di ragionamento: mostriamo attività su tutta la rete, intensificata su nodi attivi
+                                // Fase di ragionamento: animiamo solo le connessioni adiacenti ai nodi attivi
                                 const srcId = typeof link.source === 'object' ? link.source.id : link.source;
                                 const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
-                                const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId) || window.secondaryActiveNodes.has(srcId) || window.secondaryActiveNodes.has(tgtId);
-                                if (isConnected) return 6;
-                                return 1; // attività elettrica di fondo diffusa
+                                const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId);
+                                if (isConnected) return 4;
+                                return 0;
                             }
-                            if (type === 'default') return 0;
-                            if (type === 'strong') return 5;
-                            if (type === 'medium') return 3;
-                            if (type === 'weak') return 1;
-                            return 0;
+                            if (type === 'strong') return 4;
+                            if (type === 'medium') return 2;
+                            return 0; // Disabilitate per i link inattivi o di default
                         })
                         .linkDirectionalParticleSpeed(link => {
                             const type = getLinkType(link);
                             const baseSpeed = (type === 'strong') ? 0.035 : (type === 'medium' ? 0.02 : 0.01);
-                            // Durante la fase "thinking" di ragionamento le cariche elettriche corrono più veloci
                             return isGraphThinking ? baseSpeed * 1.8 : baseSpeed;
                         })
                         .linkDirectionalParticleWidth(link => {
@@ -958,22 +1008,37 @@
                         })
                         .linkDirectionalParticleColor(link => {
                             const type = getLinkType(link);
-                            // Flusso ciano per i link principali, viola ad energia indotta per quelli adiacenti/deboli
                             if (type === 'strong') return HIGHLIGHT_COLOR;
-                            if (type === 'medium') return '#00b4d8'; // Blue-ciano mix
-                            return '#c77dff'; // Bright neon purple
+                            if (type === 'medium') return '#00b4d8';
+                            return '#c77dff';
                         })
-                        .cooldownTime(15000)
-                        .d3VelocityDecay(0.15)
+                        // Settle rapido e cooldown della simulazione fisica per azzerare consumo CPU
+                        .cooldownTicks(50)
+                        .cooldownTime(4000)
+                        .d3VelocityDecay(0.35)
                         .onNodeHover(node => {
+                            const prevHoverNode = hoverNode;
                             hoverNode = node || null;
                             document.body.style.cursor = node ? 'pointer' : null;
+                            
+                            // Aggiorna lo stile dei nodi interessati dall'hover in tempo reale
+                            if (prevHoverNode && prevHoverNode.__threeObj) {
+                                updateSpriteProperties(prevHoverNode, prevHoverNode.__threeObj);
+                            }
+                            if (hoverNode && hoverNode.__threeObj) {
+                                updateSpriteProperties(hoverNode, hoverNode.__threeObj);
+                            }
                         });
                     
+                    // ResizeObserver debouncato per evitare continui ricalcoli WebGL costosi
+                    let resizeTimeout;
                     new ResizeObserver(() => {
-                        if (Graph && typeof Graph.width === 'function') {
-                            Graph.width(container.clientWidth).height(container.clientHeight);
-                        }
+                        clearTimeout(resizeTimeout);
+                        resizeTimeout = setTimeout(() => {
+                            if (Graph && typeof Graph.width === 'function') {
+                                Graph.width(container.clientWidth).height(container.clientHeight);
+                            }
+                        }, 150);
                     }).observe(container);
                 }
                 
@@ -990,15 +1055,12 @@
                             controls.enableRotate = is3D;
                             if (!is3D) {
                                 controls.autoRotate = false;
-                                // Vincola la telecamera impedendo rotazioni su Z e pitch/yaw
                                 controls.minPolarAngle = Math.PI / 2;
                                 controls.maxPolarAngle = Math.PI / 2;
                                 controls.minAzimuthAngle = 0;
                                 controls.maxAzimuthAngle = 0;
-                                // Riposiziona camera a piombo
                                 Graph.cameraPosition({ x: 0, y: 0, z: 450 }, { x: 0, y: 0, z: 0 }, 500);
                             } else {
-                                // Ripristina libertà di rotazione 3D e riattiva auto-rotazione lenta di idle
                                 controls.minPolarAngle = 0;
                                 controls.maxPolarAngle = Math.PI;
                                 controls.minAzimuthAngle = -Infinity;
@@ -1043,17 +1105,29 @@
             initGraph();
         });
 
+        // Gestione visibilità scheda per sospendere il rendering e risparmiare risorse di background
+        document.addEventListener('visibilitychange', () => {
+            if (Graph) {
+                if (document.hidden) {
+                    Graph.pauseAnimation();
+                } else {
+                    Graph.resumeAnimation();
+                    if (typeof Graph.d3ReheatSimulation === 'function') {
+                        Graph.d3ReheatSimulation();
+                    }
+                }
+            }
+        });
+
         // Estrattore di nodi pertinenti in base al testo immesso
         function findRelevantNodes(text) {
             if (!text || !graphData.nodes || graphData.nodes.length === 0) return [];
             const cleanText = text.toLowerCase();
-            // Trova parole chiave significative (minimo 3 caratteri)
             const words = cleanText.split(/[\s,.'"?!\(\)\[\]_#\-]+/g).filter(w => w.length >= 3);
             
             const matched = [];
             graphData.nodes.forEach(node => {
                 const nodeLower = node.id.toLowerCase();
-                // Match se il nodo contiene una parola chiave o viceversa
                 const isMatch = words.some(w => nodeLower.includes(w) || w.includes(nodeLower));
                 if (isMatch) {
                     matched.push(node.id);
@@ -1063,13 +1137,12 @@
         }
 
         function highlightNodes(nodeIds, isThinking = false) {
-            if (!Graph || typeof Graph.nodeColor !== 'function') return;
+            if (!Graph) return;
             try {
                 isGraphThinking = isThinking;
                 window.primaryActiveNodes.clear();
                 window.secondaryActiveNodes.clear();
                 
-                // Mappa i nodi citati in modo tollerante
                 nodeIds.forEach(id => {
                     const cleanId = id.split('/').pop().replace('.md', '').trim().toLowerCase();
                     const matchedNode = graphData.nodes.find(n => n.id.toLowerCase() === cleanId);
@@ -1078,7 +1151,6 @@
                     }
                 });
                 
-                // Se ragioniamo (isThinking) e non abbiamo trovato nodi specifici, usiamo i top 6 hub come fallback per mostrare l'attività elettrica generale del network.
                 if (window.primaryActiveNodes.size === 0 && isThinking) {
                     const sortedNodes = [...graphData.nodes]
                         .sort((a, b) => (b.val || 1) - (a.val || 1))
@@ -1086,7 +1158,6 @@
                     sortedNodes.forEach(n => window.primaryActiveNodes.add(n.id));
                 }
                 
-                // Trova i vicini di 1° grado
                 if (window.primaryActiveNodes.size > 0) {
                     graphData.links.forEach(link => {
                         const srcId = typeof link.source === 'object' ? link.source.id : link.source;
@@ -1105,9 +1176,14 @@
                     });
                 }
                 
-                // Forza il ricalcolo degli attributi grafici
-                Graph.nodeColor(Graph.nodeColor());
-                Graph.nodeVal(Graph.nodeVal());
+                // Aggiorna dinamicamente in-place le proprietà degli Sprite dei nodi
+                graphData.nodes.forEach(node => {
+                    if (node.__threeObj) {
+                        updateSpriteProperties(node, node.__threeObj);
+                    }
+                });
+                
+                // Forza il ricalcolo degli attributi grafici dei link
                 Graph.linkColor(Graph.linkColor());
                 Graph.linkWidth(Graph.linkWidth());
                 if (typeof Graph.linkDirectionalParticles === 'function') {
@@ -1116,7 +1192,7 @@
                     Graph.linkDirectionalParticleWidth(Graph.linkDirectionalParticleWidth());
                 }
  
-                // Zoom e posizionamento dinamico baricentrico su TUTTI i nodi attivi (primari + secondari)
+                // Zoom e posizionamento dinamico baricentrico su TUTTI i nodi attivi
                 const activeNodes = graphData.nodes.filter(n => window.primaryActiveNodes.has(n.id) || window.secondaryActiveNodes.has(n.id));
                 if (activeNodes.length > 0 && typeof Graph.cameraPosition === 'function') {
                     let sumX = 0, sumY = 0, sumZ = 0;
@@ -1129,27 +1205,24 @@
                     const avgY = sumY / activeNodes.length;
                     const avgZ = sumZ / activeNodes.length;
                     
-                    // Trova la massima estensione dal baricentro
                     let maxDist = 0;
                     activeNodes.forEach(n => {
                         const d = Math.hypot((n.x || 0) - avgX, (n.y || 0) - avgY, (n.z || 0) - avgZ);
                         if (d > maxDist) maxDist = d;
                     });
                     
-                    // Calcola distanza ottimale (zoom più ravvicinato, extra-vicino in fase di ragionamento)
                     const distanceMultiplier = isThinking ? 0.6 : 1.8;
                     const minDistance = isThinking ? (is3D ? 25 : 40) : (is3D ? 80 : 120);
                     const distance = Math.max(maxDist * distanceMultiplier, minDistance);
                     
-                    // In 2D manteniamo l'asse Z a piombo
                     const camX = is3D ? avgX + distance * 0.6 : avgX;
                     const camY = is3D ? avgY + distance * 0.6 : avgY;
                     const camZ = is3D ? avgZ + distance * 0.6 : distance;
                     
                     Graph.cameraPosition(
-                        { x: camX, y: camY, z: camZ }, // posizione fotocamera
-                        { x: avgX, y: avgY, z: avgZ }, // target di lookAt (baricentro)
-                        1800 // durata della transizione fluida
+                        { x: camX, y: camY, z: camZ },
+                        { x: avgX, y: avgY, z: avgZ },
+                        1800
                     );
                 }
             } catch (err) {
