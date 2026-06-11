@@ -5,10 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secondo Cervello - Graph & Chat</title>
     
-    <!-- Three.js (Necessario per poter utilizzare oggetti Three.js come THREE.Sprite e CanvasTexture nei nodi) -->
-    <script src="/static/js/three.min.js"></script>
-
-    <!-- Force Graph libs (Useremo solo 3D-force-graph per sfruttare WebGL sia in 2D che in 3D) -->
+    <!-- Force Graph libs (Useremo solo 3D-force-graph per sfruttare WebGL sia in 2D che in 3D, espone internamente Three.js come ForceGraph3D.THREE) -->
     <script src="/static/js/3d-force-graph.min.js"></script>
     
     <!-- Markdown to HTML basic parser -->
@@ -982,6 +979,8 @@
                         showGraphError("ForceGraph3D is undefined");
                         return;
                     }
+                    // Usa la versione di Three.js interna di ForceGraph3D per prevenire prototype mismatches e conflitti WebGL
+                    window.THREE = ForceGraph3D.THREE;
                     Graph = ForceGraph3D()(container)
                         .width(container.clientWidth)
                         .height(container.clientHeight)
