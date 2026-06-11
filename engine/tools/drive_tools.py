@@ -249,7 +249,8 @@ def drive_sync_to_raw() -> int:
         api_key = None
         if not access_token:
             # Fallback sulla chiave API
-            api_key = os.getenv("GEMINI_API_KEY")
+            from engine.utils.llm_fallback import resolve_gemini_key
+            api_key = resolve_gemini_key()
             if not api_key or "YOUR_GEMINI" in api_key:
                 print("Errore: Impossibile sincronizzare Google Drive. Nessun token OAuth/ADC trovato e GEMINI_API_KEY non impostata.")
                 return 0

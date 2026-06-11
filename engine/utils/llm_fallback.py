@@ -12,6 +12,50 @@ try:
 except AttributeError:
     ssl_context = None
 
+_original_gemini_key_pool = None
+
+def resolve_gemini_key() -> str:
+    """
+    Risolve e ruota le chiavi API di Gemini da una lista separata da virgole in GEMINI_API_KEY.
+    Memorizza la lista originale e seleziona a caso una delle chiavi, impostandola
+    temporaneamente in os.environ["GEMINI_API_KEY"] per compatibilità con gli SDK esterni.
+    """
+    global _original_gemini_key_pool
+    import random
+    
+    if _original_gemini_key_pool is None:
+        _original_gemini_key_pool = os.getenv("GEMINI_API_KEY", "").strip()
+        
+    if not _original_gemini_key_pool:
+        return ""
+        
+    if "," not in _original_gemini_key_pool:
+        return _original_gemini_key_pool
+        
+    keys = [k.strip() for k in _original_gemini_key_pool.split(",") if k.strip()]
+    if not keys:
+        return ""
+        
+    selected_key = random.choice(keys)
+    os.environ["GEMINI_API_KEY"] = selected_key
+    return selected_key
+
+def get_gemini_keys() -> list:
+    """
+    Ritorna la lista di tutte le chiavi Gemini configurate.
+    """
+    global _original_gemini_key_pool
+    if _original_gemini_key_pool is None:
+        _original_gemini_key_pool = os.getenv("GEMINI_API_KEY", "").strip()
+        
+    if not _original_gemini_key_pool:
+        return []
+        
+    if "," not in _original_gemini_key_pool:
+        return [_original_gemini_key_pool]
+        
+    return [k.strip() for k in _original_gemini_key_pool.split(",") if k.strip()]
+
 # Circuit Breaker per i modelli che hanno esaurito la quota
 RATE_LIMITS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".rate_limits.json")
 
@@ -194,10 +238,7 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
     Se tutti i modelli Gemini falliscono o sono congestionati, tenta la chiamata
     in cascata sui provider di fallback disponibili (OpenAI -> DeepSeek -> Together -> DashScope -> Zhipu).
     """
-    import os
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    is_gemini_key_valid = gemini_key and gemini_key != "dummy-key" and not gemini_key.startswith("YOUR_")
-    use_gemini = is_gemini_key_valid or (hasattr(gemini_config, "vertex") and gemini_config.vertex)
+
 
     model_name = gemini_config.model
     if model_name.startswith("ollama") or os.getenv("OLLAMA_ENABLED") == "true":
@@ -250,6 +291,8 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                 print(f"OpenAI fallito durante bypass: {e}. Tento con la catena standard.")
 
     errors = []
+    keys = get_gemini_keys()
+    use_gemini = len(keys) > 0 or (hasattr(gemini_config, "vertex") and gemini_config.vertex)
     
     if use_gemini:
         rate_limited_models = load_rate_limited_models()
@@ -258,27 +301,32 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
             print(f"Bypass Gemini Principale: {gemini_config.model} è contrassegnato in quota-limit nel file .rate_limits.json.")
             errors.append(f"Gemini Principale ({gemini_config.model}): Saltato (in quota-limit).")
         else:
-            try:
-                print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via API REST nativa...")
-                resp_text = await call_native_gemini_api(
-                    model=gemini_config.model,
-                    api_key=gemini_key,
-                    system_instructions=gemini_config.system_instructions,
-                    prompt=prompt
-                )
-                if resp_text and resp_text.strip() != "":
-                    return resp_text
-                raise RuntimeError("Risposta vuota da Gemini API")
-            except Exception as e:
-                errors.append(f"Gemini Principale ({gemini_config.model}): {e}")
-                err_str = str(e).lower()
-                is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
-                if is_rate_limit:
-                    print(f"Rilevato limite di frequenza/quota (429) per {gemini_config.model}. Circuit Breaker attivato immediatamente.")
-                    save_rate_limited_model(gemini_config.model)
-                else:
-                    err_msg = str(e)
-                    print(f"Gemini API ({gemini_config.model}) fallita o congestionata ({err_msg[:80]}...). Tento fallback su altri modelli...")
+            for current_key in keys:
+                os.environ["GEMINI_API_KEY"] = current_key
+                try:
+                    print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via API REST nativa usando chiave {current_key[:10]}...")
+                    resp_text = await call_native_gemini_api(
+                        model=gemini_config.model,
+                        api_key=current_key,
+                        system_instructions=gemini_config.system_instructions,
+                        prompt=prompt
+                    )
+                    if resp_text and resp_text.strip() != "":
+                        return resp_text
+                    raise RuntimeError("Risposta vuota da Gemini API")
+                except Exception as e:
+                    errors.append(f"Gemini Principale ({gemini_config.model}) con chiave {current_key[:10]}: {e}")
+                    err_str = str(e).lower()
+                    is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
+                    if is_rate_limit:
+                        print(f"Rilevato limite di frequenza/quota (429) per {gemini_config.model} con chiave {current_key[:10]}. Tento chiave successiva...")
+                    else:
+                        err_msg = str(e)
+                        print(f"Gemini API ({gemini_config.model}) fallita con chiave {current_key[:10]} ({err_msg[:80]}...). Tento chiave successiva...")
+            
+            if keys:
+                print(f"Tutte le chiavi hanno fallito per {gemini_config.model}. Attivo il circuit breaker per questo modello.")
+                save_rate_limited_model(gemini_config.model)
                         
         # 1b. Tentativo con modelli Gemini di fallback in cascata (gemini-2.5-flash, gemini-3.1-flash-lite, gemini-2.0-flash)
         fallback_models = ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash"]
@@ -289,28 +337,34 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                 print(f"Bypass fallback: {fallback_model} è contrassegnato in quota-limit nel file .rate_limits.json.")
                 errors.append(f"Gemini Fallback ({fallback_model}): Saltato (in quota-limit).")
                 continue
-            try:
-                print(f"Tentativo di elaborazione con Gemini di Fallback ({fallback_model}) via API REST nativa...")
-                resp_text = await call_native_gemini_api(
-                    model=fallback_model,
-                    api_key=gemini_key,
-                    system_instructions=gemini_config.system_instructions,
-                    prompt=prompt
-                )
-                if resp_text and resp_text.strip() != "":
-                    return resp_text
-                raise RuntimeError(f"Risposta vuota da Gemini API ({fallback_model})")
-            except Exception as e2:
-                errors.append(f"Gemini Fallback ({fallback_model}): {e2}")
-                err_str2 = str(e2).lower()
-                is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
-                if is_rate_limit2:
-                    print(f"Rilevato limite di frequenza/quota (429) per fallback {fallback_model}. Circuit Breaker attivato immediatamente.")
-                    save_rate_limited_model(fallback_model)
-                else:
-                    print(f"Gemini fallback ({fallback_model}) fallito: {e2}.")
+            
+            for current_key in keys:
+                os.environ["GEMINI_API_KEY"] = current_key
+                try:
+                    print(f"Tentativo di elaborazione con Gemini di Fallback ({fallback_model}) via API REST nativa usando chiave {current_key[:10]}...")
+                    resp_text = await call_native_gemini_api(
+                        model=fallback_model,
+                        api_key=current_key,
+                        system_instructions=gemini_config.system_instructions,
+                        prompt=prompt
+                    )
+                    if resp_text and resp_text.strip() != "":
+                        return resp_text
+                    raise RuntimeError(f"Risposta vuota da Gemini API ({fallback_model})")
+                except Exception as e2:
+                    errors.append(f"Gemini Fallback ({fallback_model}) con chiave {current_key[:10]}: {e2}")
+                    err_str2 = str(e2).lower()
+                    is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
+                    if is_rate_limit2:
+                        print(f"Rilevato limite di frequenza/quota (429) per fallback {fallback_model} con chiave {current_key[:10]}. Tento chiave successiva...")
+                    else:
+                        print(f"Gemini fallback ({fallback_model}) fallito con chiave {current_key[:10]}: {e2}. Tento chiave successiva...")
+            
+            if keys:
+                print(f"Tutte le chiavi hanno fallito per {fallback_model}. Attivo il circuit breaker per questo modello.")
+                save_rate_limited_model(fallback_model)
     else:
-        errors.append("Gemini saltato: chiave non valida o dummy-key in GEMINI_API_KEY e Vertex disabilitato.")
+        errors.append("Gemini saltato: chiavi non valide o vuote in GEMINI_API_KEY e Vertex disabilitato.")
 
     # 2. Fallback su OpenAI (gpt-4o-mini)
     openai_key = os.getenv("OPENAI_API_KEY")
@@ -415,15 +469,15 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
 async def transcribe_audio_via_gemini(audio_base64: str, mime_type: str = "audio/ogg") -> str:
     """
     Invia un file audio codificato in base64 a Gemini per la trascrizione.
-    Tenta prima con gemini-2.5-flash e i modelli in cascata.
+    Tenta prima con gemini-2.5-flash e i modelli in cascata, ruotando le chiavi disponibili.
     """
     import os
     import json
     import urllib.request
     import urllib.error
     
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not gemini_key or gemini_key == "dummy-key" or gemini_key.startswith("YOUR_"):
+    keys = get_gemini_keys()
+    if not keys:
         raise ValueError("GEMINI_API_KEY non impostata o non valida. Impossibile trascrivere il vocale.")
 
     # Modelli multimodali da tentare in cascata
@@ -431,50 +485,51 @@ async def transcribe_audio_via_gemini(audio_base64: str, mime_type: str = "audio
     
     errors = []
     for model in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {
-                            "inlineData": {
-                                "mimeType": mime_type,
-                                "data": audio_base64
+        for current_key in keys:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={current_key}"
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "inlineData": {
+                                    "mimeType": mime_type,
+                                    "data": audio_base64
+                                }
+                            },
+                            {
+                                "text": (
+                                    "Trascrivi fedelmente questo audio in lingua italiana. "
+                                    "Restituisci solo ed esclusivamente la trascrizione letterale dell'audio, "
+                                    "senza alcuna introduzione, commento, formattazione aggiuntiva, punteggiatura extra non pronunciata o spiegazione."
+                                )
                             }
-                        },
-                        {
-                            "text": (
-                                "Trascrivi fedelmente questo audio in lingua italiana. "
-                                "Restituisci solo ed esclusivamente la trascrizione letterale dell'audio, "
-                                "senza alcuna introduzione, commento, formattazione aggiuntiva, punteggiatura extra non pronunciata o spiegazione."
-                            )
-                        }
-                    ]
-                }
-            ]
-        }
-        
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, method="POST")
-        req.add_header("Content-Type", "application/json")
-        
-        loop = asyncio.get_running_loop()
-        try:
-            print(f"[Telegram Audio] Tentativo di trascrizione audio con {model}...")
-            def do_request():
-                with urllib.request.urlopen(req, context=ssl_context, timeout=60) as response:
-                    return response.read().decode("utf-8")
-                    
-            resp_body = await loop.run_in_executor(None, do_request)
-            resp_json = json.loads(resp_body)
-            transcription = resp_json["candidates"][0]["content"]["parts"][0]["text"].strip()
-            if transcription:
-                return transcription
-            else:
-                raise RuntimeError("Il modello ha restituito una risposta vuota.")
-        except Exception as e:
-            errors.append(f"{model}: {e}")
-            print(f"[Telegram Audio] Errore trascrizione con {model}: {e}")
+                        ]
+                    }
+                ]
+            }
             
-    raise RuntimeError(f"Tutti i modelli per la trascrizione sono falliti: {', '.join(errors)}")
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(url, data=data, method="POST")
+            req.add_header("Content-Type", "application/json")
+            
+            loop = asyncio.get_running_loop()
+            try:
+                print(f"[Telegram Audio] Tentativo di trascrizione audio con {model} usando chiave {current_key[:10]}...")
+                def do_request():
+                    with urllib.request.urlopen(req, context=ssl_context, timeout=60) as response:
+                        return response.read().decode("utf-8")
+                        
+                resp_body = await loop.run_in_executor(None, do_request)
+                resp_json = json.loads(resp_body)
+                transcription = resp_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if transcription:
+                    return transcription
+                else:
+                    raise RuntimeError("Il modello ha restituito una risposta vuota.")
+            except Exception as e:
+                errors.append(f"{model} ({current_key[:10]}): {e}")
+                print(f"[Telegram Audio] Errore trascrizione con {model} usando chiave {current_key[:10]}: {e}")
+                
+    raise RuntimeError(f"Tutti i modelli e le chiavi per la trascrizione sono falliti: {', '.join(errors)}")
 

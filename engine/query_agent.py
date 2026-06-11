@@ -537,7 +537,8 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig, his
 
     # 1. Prova ad usare l'Agent nativo di Gemini (con tool search_wiki/read_wiki_page_content)
     try:
-        gemini_key = os.getenv("GEMINI_API_KEY", "")
+        from engine.utils.llm_fallback import resolve_gemini_key
+        gemini_key = resolve_gemini_key()
         if not gemini_key or gemini_key == "dummy-key":
             raise ValueError("GEMINI_API_KEY non impostata o impostata come dummy-key")
             

@@ -18,7 +18,8 @@ def get_client() -> genai.Client:
             raise ValueError("project_id mancante in settings.md per l'uso di Vertex AI.")
         return genai.Client(vertexai=True, project=project, location=location)
     else:
-        api_key = os.getenv("GEMINI_API_KEY")
+        from engine.utils.llm_fallback import resolve_gemini_key
+        api_key = resolve_gemini_key()
         if not api_key or api_key == "dummy-key":
             raise ValueError("GEMINI_API_KEY is not set correctly. Usa Vertex AI oppure inserisci una chiave.")
         return genai.Client(api_key=api_key)
