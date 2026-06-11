@@ -287,7 +287,17 @@ def create_notion_task(title: str, due_date: str = None, status: str = "To Do", 
             client = Client(auth=token)
             
             # Interroga lo schema del database per mappare dinamicamente i campi
-            db_schema = client.databases.retrieve(database_id=db_id)
+            # Interroga lo schema del database o della data_source per mappare dinamicamente i campi
+            is_data_source = False
+            try:
+                db_schema = client.databases.retrieve(database_id=db_id)
+            except Exception as db_err:
+                try:
+                    db_schema = client.data_sources.retrieve(data_source_id=db_id)
+                    is_data_source = True
+                except Exception as ds_err:
+                    raise db_err  # Rilancia l'errore originario del database se falliscono entrambi
+            
             properties_schema = db_schema.get("properties", {})
             
             # Trova la chiave del titolo (tipo "title")
@@ -322,7 +332,8 @@ def create_notion_task(title: str, due_date: str = None, status: str = "To Do", 
                     properties[date_name] = {"date": {"start": due_date.strip()}}
                     
             # Invia la richiesta di creazione
-            new_page = client.pages.create(parent={"database_id": db_id}, properties=properties)
+            parent = {"data_source_id": db_id} if is_data_source else {"database_id": db_id}
+            new_page = client.pages.create(parent=parent, properties=properties)
             page_id = new_page["id"]
             notion_success = True
             print(f"Task '{title}' creato con successo su Notion (Page ID: {page_id})")
