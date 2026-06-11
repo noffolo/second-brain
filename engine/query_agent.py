@@ -35,7 +35,8 @@ def extract_keywords(query: str) -> list[str]:
         "alle", "dal", "dallo", "dalla", "dai", "dagli", "dalle", "nel", "nello", "nella", "nei", "negli", "nelle", "sul",
         "sullo", "sulla", "sui", "sugli", "sulle", "col", "coi", "cosa", "come", "dove", "quando", "perche", "chi", "quale",
         "quali", "questo", "quello", "mi", "ti", "ci", "vi", "si", "lo", "la", "li", "le", "gli", "ne", "su", "per",
-        "assoluto", "quello", "quelli", "quella", "questo", "questi", "questa", "sono", "stato", "stati", "era", "erano"
+        "assoluto", "quello", "quelli", "quella", "questo", "questi", "questa", "sono", "stato", "stati", "era", "erano",
+        "ff3300"
     }
     keywords = []
     for w in words:
@@ -129,6 +130,8 @@ def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
                 if res.returncode == 0:
                     files = {line.strip() for line in res.stdout.splitlines() if line.strip()}
                     file_sets.append(files)
+                else:
+                    file_sets.append(set())
             
             if file_sets:
                 intersected = set.intersection(*file_sets)
@@ -193,8 +196,6 @@ def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
             kw_results = search_wiki(kw)
             for r in kw_results:
                 if r['path'] not in seen_paths:
-                    seen_paths.add(r['path'])
-                    # Leggi una porzione del file per arricchire il snippet
                     filepath = os.path.join(get_vault_path(), r['path'])
                     snippet = r.get('snippet', '')
                     if os.path.exists(filepath):
@@ -205,6 +206,44 @@ def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
                                     snippet = body.strip()
                         except Exception:
                             pass
+                            
+                    # Filtro anti-rumore per query multi-parola
+                    is_relevant = True
+                    if len(keywords) >= 2:
+                        capitalized_words = {w.strip("’'").lower() for w in query.split() if w and w[0].isupper()}
+                        # Escludi la prima parola se la prima parola è l'unica maiuscola per evitare falsi positivi da inizio frase
+                        query_words = query.split()
+                        if query_words and query_words[0][0].isupper() and len(capitalized_words) > 1:
+                            capitalized_words.discard(query_words[0].strip("’'").lower())
+                        # Rimuovi anche le stopwords note (es. FF3300) dai nomi propri per sicurezza
+                        capitalized_words.discard("ff3300")
+                        
+                        in_title = kw.lower() in r['title'].lower()
+                        is_proper_noun = kw.lower() in capitalized_words
+                        
+                        if not in_title and not is_proper_noun:
+                            # Se ci sono nomi propri nella query, richiedi che la nota ne contenga almeno uno
+                            if capitalized_words:
+                                body_lower = snippet.lower()
+                                title_lower = r['title'].lower()
+                                has_proper_match = any(pw in body_lower or pw in title_lower for pw in capitalized_words)
+                                if not has_proper_match:
+                                    is_relevant = False
+                            else:
+                                # Altrimenti, richiedi un altro keyword significativo
+                                other_kws = [k.lower() for k in keywords if k != kw and len(k) >= 4]
+                                if not other_kws:
+                                    other_kws = [k.lower() for k in keywords if k != kw]
+                                body_lower = snippet.lower()
+                                title_lower = r['title'].lower()
+                                has_other_match = any(okw in body_lower or okw in title_lower for okw in other_kws)
+                                if not has_other_match:
+                                    is_relevant = False
+                                
+                    if not is_relevant:
+                        continue
+                        
+                    seen_paths.add(r['path'])
                     results.append({
                         "path": r['path'],
                         "title": r['title'],
