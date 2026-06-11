@@ -101,7 +101,7 @@ def save_rate_limited_model(model: str, duration_seconds: int = 1800):
     except Exception as e:
         print(f"[Circuit Breaker] Errore di scrittura file limitazioni: {e}")
 
-async def call_openai_compatible_api(url: str, api_key: str, model: str, system_instructions: str, prompt: str) -> str:
+async def call_openai_compatible_api(url: str, api_key: str, model: str, system_instructions: str, prompt: str, timeout: int = 25) -> str:
     """
     Effettua una chiamata HTTP asincrona (tramite thread pool) a un endpoint compatibile con OpenAI.
     """
@@ -135,7 +135,7 @@ async def call_openai_compatible_api(url: str, api_key: str, model: str, system_
     for attempt in range(max_retries + 1):
         try:
             def do_request():
-                with urllib.request.urlopen(req, context=ssl_context, timeout=25) as response:
+                with urllib.request.urlopen(req, context=ssl_context, timeout=timeout) as response:
                     return response.read().decode("utf-8")
                     
             resp_body = await loop.run_in_executor(None, do_request)
@@ -256,7 +256,8 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                 api_key="ollama",
                 model=ollama_model,
                 system_instructions=system_instructions,
-                prompt=prompt
+                prompt=prompt,
+                timeout=90
             )
         except Exception as e:
             print(f"Ollama locale fallito: {e}. Tento con la catena standard.")
@@ -457,7 +458,8 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                 api_key="ollama",
                 model=ollama_model,
                 system_instructions=system_instructions,
-                prompt=prompt
+                prompt=prompt,
+                timeout=90
             )
         except Exception as e:
             errors.append(f"Ollama ({ollama_model}): {e}")
