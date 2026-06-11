@@ -78,7 +78,7 @@ def notion_calendar_sync() -> int:
     events_synced = 0
     try:
         client = Client(auth=token)
-        dest_dir = os.path.join(vault_path, "raw", "calendar")
+        dest_dir = os.path.join(vault_path, "wiki", "sources", "Riunioni")
         os.makedirs(dest_dir, exist_ok=True)
         
         print(f"Interrogazione database Notion Calendar: {db_id}...")
@@ -129,14 +129,19 @@ def notion_calendar_sync() -> int:
                 # Se non ha una data, salta
                 continue
                 
-            clean_id = page_id.replace("-", "")
-            filename = f"event_notion_{clean_id}.md"
+            import re
+            clean_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
+            if not clean_title:
+                clean_title = f"Evento_{page_id.replace('-', '')}"
+            filename = f"{clean_title}.md"
             filepath = os.path.join(dest_dir, filename)
             
             # Format frontmatter
+            quando = start_time[:10] if start_time else ""
             fm = {
-                "type": "calendar_event",
+                "type": "meeting",
                 "title": title,
+                "quando": quando,
                 "start_time": start_time,
                 "end_time": end_time or None,
                 "location": location or None,
@@ -154,6 +159,16 @@ def notion_calendar_sync() -> int:
             full_md = to_markdown(fm, body)
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(full_md)
+                
+            # Indicizzazione in tempo reale in ChromaDB
+            try:
+                from engine.utils.vector_db import get_vector_db
+                from engine.tools.embedder import chunk_text
+                db = get_vector_db()
+                rel_path = os.path.relpath(filepath, vault_path)
+                db.upsert_chunks(rel_path, title, chunk_text(body))
+            except Exception as e:
+                print(f"Errore indicizzazione vettoriale per {filepath}: {e}")
                 
             events_synced += 1
             

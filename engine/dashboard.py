@@ -395,12 +395,12 @@ def build_graph_data():
                         group = 2
                     elif rel_path.startswith("wiki/entities/"):
                         group = 3
+                    elif rel_path.startswith("wiki/sources/Riunioni/") or rel_path.startswith("Meetings/"):
+                        group = 6
                     elif rel_path.startswith("wiki/sources/"):
                         group = 4
                     elif rel_path.startswith("CRM/"):
                         group = 5
-                    elif rel_path.startswith("Meetings/"):
-                        group = 6
                     elif rel_path.startswith("journal/"):
                         group = 7
                         

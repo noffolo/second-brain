@@ -1882,6 +1882,9 @@
             refreshGraphRendering();
 
             if (Graph) {
+                if (typeof Graph.d3AlphaTarget === 'function') {
+                    Graph.d3AlphaTarget(0.15);
+                }
                 if (typeof Graph.d3ReheatSimulation === 'function') {
                     Graph.d3ReheatSimulation();
                 }
@@ -1962,13 +1965,20 @@
                     
                     setAutoRotateState(0.4);
                     if (data.cited_nodes && data.cited_nodes.length > 0) {
-                        highlightNodes(data.cited_nodes, false);
+                        highlightNodes(data.cited_nodes, true);
                     } else {
-                        highlightNodes(relevantNodes, false);
+                        highlightNodes(relevantNodes, true);
                     }
                 } else {
                     appendMessage('bot', `Errore: ${data.error}`);
                     chatHistory.pop();
+                    hideNodeLabels = false;
+                    isGraphThinking = false;
+                    if (Graph && typeof Graph.d3AlphaTarget === 'function') {
+                        Graph.d3AlphaTarget(0);
+                    }
+                    highlightNodes(relevantNodes, false);
+                    refreshGraphRendering();
                 }
 
             } catch (err) {
@@ -1979,6 +1989,13 @@
                 if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'user') {
                     chatHistory.pop();
                 }
+                hideNodeLabels = false;
+                isGraphThinking = false;
+                if (Graph && typeof Graph.d3AlphaTarget === 'function') {
+                    Graph.d3AlphaTarget(0);
+                }
+                highlightNodes(relevantNodes, false);
+                refreshGraphRendering();
             } finally {
                 setAutoRotateState(0.4);
                 chatSubmit.disabled = false;
@@ -2065,6 +2082,11 @@
                 typeWriter(textDiv, content, 8, () => {
                     addCopyButton(div, textDiv);
                     hideNodeLabels = false;
+                    isGraphThinking = false;
+                    if (Graph && typeof Graph.d3AlphaTarget === 'function') {
+                        Graph.d3AlphaTarget(0);
+                    }
+                    highlightNodes([...window.primaryActiveNodes], false);
                     refreshGraphRendering();
                 });
             } else {
@@ -2072,6 +2094,11 @@
                 if (!content.includes('loading-dots') && !content.includes('thinking-emoji')) {
                     addCopyButton(div, textDiv);
                     hideNodeLabels = false;
+                    isGraphThinking = false;
+                    if (Graph && typeof Graph.d3AlphaTarget === 'function') {
+                        Graph.d3AlphaTarget(0);
+                    }
+                    highlightNodes([...window.primaryActiveNodes], false);
                     refreshGraphRendering();
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;

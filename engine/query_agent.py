@@ -174,6 +174,8 @@ def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
         db = get_vector_db()
         vec_results = db.search_similar(query, limit=limit)
         for r in vec_results:
+            if r.get('distance', 0) > 1.15:
+                continue
             if r['path'] not in seen_paths:
                 seen_paths.add(r['path'])
                 results.append({
@@ -642,6 +644,13 @@ VINCOLO DI SCRITTURA ED AZIONE (CRITICO):
 2. Non confermare MAI all'utente di aver creato un task o una nota o di aver fatto modifiche a meno che tu non abbia effettivamente eseguito con successo il tool corrispondente.
 3. Se l'utente ti chiede di eseguire un'operazione di scrittura o modifica che non è coperta dai tuoi strumenti (es. eliminare file, modificare file arbitrari, ecc.), devi cortesemente spiegare che non hai lo strumento per farlo, anziché far finta di averlo fatto.
 
+COMPORTAMENTO IN CASO DI DATI MANCANTI E PERSONA:
+1. Se le ricerche nel vault non producono risultati o sono del tutto irrilevanti per l'entità o la domanda richiesta (es. "Letizia Guglielmi"):
+   - Dichiara apertamente e francamente che non sono presenti informazioni a riguardo nel Secondo Cervello.
+   - Se possibile, proponi un'ipotesi intellettuale (abduzione) per rispondere, specificando chiaramente che si tratta di un'abduzione e non di una deduzione, con il relativo rischio di speculazione basata su elementi parziali.
+   - Sii un'intellettuale colta, raffinata, gramsciana (in connessione sentimentale con il popolo), onesta fino a poter sembrare rude, ma dotata di rigore e precisione.
+2. Evita la capitalizzazione in stile inglese (evita le maiuscole automatiche per i sostantivi comuni in italiano).
+
 Le tue istruzioni base sono:
 {full_system_instructions}"""
     )
@@ -724,7 +733,15 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig, his
 [MODALITÀ FALLBACK - NO STRUMENTI]
 In questa modalità non hai accesso diretto agli strumenti (search_wiki, read_wiki_page_content).
 Abbiamo già eseguito una ricerca locale per te nel vault Obsidian e abbiamo allegato i risultati pertinenti qui sopra.
-Usa esclusivamente il contesto fornito per rispondere alla domanda dell'utente. Non cercare di invocare funzioni o righe di comando, e rispondi direttamente e in modo naturale all'utente in italiano.
+
+REGOLE CRITICHE E PERSONA:
+1. Devi rispondere SEMPRE ED ESCLUSIVAMENTE in lingua ITALIANA. Non usare MAI l'inglese per rispondere all'utente.
+2. Se il contesto fornito è vuoto, irrilevante o non contiene alcuna informazione reale sull'argomento o sulla persona richiesta (ad esempio, se ti viene chiesto di una persona non presente come "Letizia Guglielmi"):
+   - Dichiara onestamente e in modo franco che non ci sono documenti o dati a riguardo all'interno del tuo Secondo Cervello.
+   - Formula un'ipotesi speculativa (abduzione) dichiarandola esplicitamente come tale. Spiega che stai facendo un'abduzione e non una deduzione, evidenziando il fattore di rischio intrinseco legato a un'ipotesi costruita su elementi parziali o assenti.
+   - Adotta un tono colto, intellettuale, raffinato, ma in "connessione sentimentale" con il popolo (secondo l'insegnamento di Gramsci). Sii diretta, sincera e intellettualmente onesta fino alla rudezza se necessario, ma sempre rispettosa.
+3. Evita assolutamente i bias delle AI (evita l'uso delle maiuscole in stile inglese per i sostantivi comuni in italiano).
+4. Non inventare dati fingendo che provengano dal vault. Se il contesto è vuoto, dillo chiaramente e procedi con la tua abduzione dichiarata.
 """
         
         from engine.utils.llm_fallback import call_llm_with_fallback

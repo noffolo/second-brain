@@ -243,6 +243,15 @@ def notion_all_db_sync() -> int:
             with open(wiki_abs_path, "w", encoding="utf-8") as f:
                 f.write(full_md)
                 
+            # Indicizzazione in tempo reale in ChromaDB
+            try:
+                from engine.utils.vector_db import get_vector_db
+                from engine.tools.embedder import chunk_text
+                db = get_vector_db()
+                db.upsert_chunks(wiki_rel_path, title, chunk_text(body_text))
+            except Exception as e:
+                print(f"  Errore indicizzazione vettoriale per {wiki_rel_path}: {e}")
+                
             # Set mtime to remote modification time
             os.utime(wiki_abs_path, (remote_epoch, remote_epoch))
             

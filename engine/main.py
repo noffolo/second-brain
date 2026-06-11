@@ -29,7 +29,14 @@ from engine.ontology_agent import (
 )
 
 def handle_notion_full_sync() -> int:
-    return notion_all_db_sync()
+    from engine.tools.notion_calendar import notion_calendar_sync
+    from engine.tools.notion_tasks import notion_tasks_sync
+    
+    db_count = notion_all_db_sync()
+    cal_count = notion_calendar_sync()
+    tasks_count = notion_tasks_sync()
+    
+    return db_count + cal_count + tasks_count
 
 def handle_sync(source: str = None):
     print("Avvio sincronizzazione delle fonti...")
