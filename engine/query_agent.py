@@ -710,6 +710,19 @@ PROFILO UTENTE (WORKING MEMORY):
             kwargs["project"] = auth["project_id"]
         if auth.get("location"):
             kwargs["location"] = auth["location"]
+            
+    # Set persistent save_dir for trajectories
+    save_dir = os.path.join(vault_path, "engine", ".conversations")
+    os.makedirs(save_dir, exist_ok=True)
+    kwargs["save_dir"] = save_dir
+
+    # Resolve and set the API key BEFORE creating the config to avoid invalid comma-separated key errors
+    from engine.utils.llm_fallback import resolve_gemini_key
+    resolved_key = resolve_gemini_key(model)
+    if resolved_key:
+        kwargs["api_key"] = resolved_key
+
+
     from google.antigravity.types import TemplatedSystemInstructions
     templated_si = TemplatedSystemInstructions(
         identity=f"""Sei il "Secondo Cervello" (Second Brain) dell'utente. 
@@ -748,7 +761,14 @@ Le tue istruzioni base sono:
     )
 
 async def query_agent_with_fallback(question: str, config: LocalAgentConfig, history: list = None) -> str:
+    conversation_id = getattr(config, "conversation_id", None)
+    if conversation_id:
+        save_dir = getattr(config, "save_dir", None)
+        if not save_dir or not os.path.exists(os.path.join(save_dir, f"traj-{conversation_id}")):
+            config.conversation_id = None
+            
     history_context = ""
+
     if history and not getattr(config, "conversation_id", None):
         history_context = "Cronologia Conversazione (Ultimi messaggi):\n"
         for msg in history:
@@ -977,13 +997,17 @@ async def query_agent_answer(question: str, history: list = None, conversation_i
         config.conversation_id = conversation_id
     return await query_agent_with_fallback(question, config, history=history)
 
-async def query_agent_stream(question: str, history: list = None, conversation_id: str = None):
+async def query_agent_stream(question: str, history: list = None, conversation_id: str = None, metadata: dict = None):
     config = await get_query_agent_config()
     if conversation_id:
-        config.conversation_id = conversation_id
+        save_dir = getattr(config, "save_dir", None)
+        if save_dir and os.path.exists(os.path.join(save_dir, f"traj-{conversation_id}")):
+            config.conversation_id = conversation_id
+        else:
+            config.conversation_id = None
         
     history_context = ""
-    if history and not conversation_id:
+    if history and not config.conversation_id:
         history_context = "Cronologia Conversazione (Ultimi messaggi):\n"
         for msg in history:
             role = "Utente" if msg["role"] == "user" else "Assistente"
@@ -992,6 +1016,7 @@ async def query_agent_stream(question: str, history: list = None, conversation_i
         
     full_question = history_context + question
 
+    yielded_any = False
     try:
         from engine.utils.llm_fallback import resolve_gemini_key
         gemini_key = resolve_gemini_key(config.model)
@@ -999,8 +1024,11 @@ async def query_agent_stream(question: str, history: list = None, conversation_i
             raise ValueError("GEMINI_API_KEY non impostata o impostata come dummy-key")
             
         async with Agent(config) as agent:
+            if metadata is not None:
+                metadata["conversation_id"] = agent.conversation_id
             response = await agent.chat(full_question)
             async for token in response:
+                yielded_any = True
                 yield token
     except Exception as e:
         print(f"[Query Streaming] Agent primario fallito ({e}). Tento fallback...")
@@ -1012,6 +1040,17 @@ async def query_agent_stream(question: str, history: list = None, conversation_i
             except Exception:
                 pass
                 
+        fallback_res = await query_agent_with_fallback(question, config, history=history)
+        yield fallback_res
+        return
+
+    if not yielded_any:
+        print("[Query Streaming] Agent primario completato con 0 token (quota probabilmente esaurita). Tento fallback...")
+        try:
+            from engine.utils.llm_fallback import save_rate_limited_key
+            save_rate_limited_key(gemini_key, config.model)
+        except Exception:
+            pass
         fallback_res = await query_agent_with_fallback(question, config, history=history)
         yield fallback_res
 

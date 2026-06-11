@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import json
 import asyncio
 import subprocess
 from typing import Optional, List
@@ -640,9 +641,15 @@ def choose_emoji(query: str, answer: str) -> str:
 async def chat_endpoint(req: ChatRequest):
     async def event_generator():
         ans_accumulator = []
+        metadata = {"conversation_id": req.conversation_id}
         try:
             from engine.query_agent import query_agent_stream
-            async for token in query_agent_stream(req.message, history=req.history, conversation_id=req.conversation_id):
+            async for token in query_agent_stream(
+                req.message, 
+                history=req.history, 
+                conversation_id=req.conversation_id,
+                metadata=metadata
+            ):
                 ans_accumulator.append(token)
                 yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
                 
@@ -651,8 +658,13 @@ async def chat_endpoint(req: ChatRequest):
             cited = [m.split("|")[0].strip() for m in wiki_re.findall(full_ans)]
             emoji = choose_emoji(req.message, full_ans)
             
-            # Send done event with metadata
-            yield f"data: {json.dumps({'type': 'done', 'cited_nodes': cited, 'emoji': emoji})}\n\n"
+            # Send done event with metadata including actual conversation_id
+            yield f"data: {json.dumps({
+                'type': 'done', 
+                'cited_nodes': cited, 
+                'emoji': emoji,
+                'conversation_id': metadata.get("conversation_id")
+            })}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
             

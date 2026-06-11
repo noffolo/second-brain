@@ -2142,6 +2142,10 @@
                                     const loadingElement = document.getElementById(loadingId);
                                     if (loadingElement) loadingElement.remove();
                                     
+                                    if (payload.conversation_id) {
+                                        sessionStorage.setItem('conversation_id', payload.conversation_id);
+                                    }
+                                    
                                     chatHistory.push({ role: 'model', content: botMessageText });
                                     if (chatHistory.length > 14) {
                                         chatHistory = chatHistory.slice(chatHistory.length - 14);

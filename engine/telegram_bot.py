@@ -2,8 +2,9 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Carica le variabili d'ambiente
-load_dotenv()
+# Carica le variabili d'ambiente dal percorso assoluto del progetto
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+load_dotenv(os.path.join(project_root, ".env"))
 
 # Aggiungi la cartella radice al path per gli import
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

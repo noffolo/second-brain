@@ -7,8 +7,9 @@ import datetime
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 
-# Load env variables at startup
-load_dotenv()
+# Load env variables at startup using absolute project path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+load_dotenv(os.path.join(project_root, ".env"))
 
 from engine.tools.notion_db_sync import notion_all_db_sync
 from engine.tools.drive_tools import drive_sync_to_raw
