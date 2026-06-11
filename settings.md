@@ -69,8 +69,8 @@ sources:
 # Configurazione dei Modelli Generativi (Gemini)
 models:
   query_agent: "gemini-3.5-flash"     # Utilizza gemini-3.5-flash come default consigliato
-  ingest_agent: "gemini-3.5-flash"
-  reflect_agent: "gemini-3.5-flash"
+  ingest_agent: "ollama/granite4.1:3b" # Modello locale per compiti di ingestione ripetitivi
+  reflect_agent: "ollama/granite4.1:3b" # Modello locale per compiti di riflessione e dream
   temperature: 0.2
 
 
