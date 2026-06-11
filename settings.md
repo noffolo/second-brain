@@ -56,7 +56,7 @@ sources:
       - "https://aimaker.substack.com/p/llm-wiki-obsidian-knowledge-base-andrej-karphaty"
 
   google_calendar:
-    enabled: true
+    enabled: false
     urls:
       - "https://calendar.google.com/calendar/ical/example%40gmail.com/public/basic.ics"
 
