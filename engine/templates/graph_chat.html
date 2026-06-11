@@ -938,7 +938,9 @@
                     if (typeof Graph.nodeLabel === 'function') Graph.nodeLabel(Graph.nodeLabel());
                     if (typeof Graph.nodeColor === 'function') Graph.nodeColor(Graph.nodeColor());
                 } else {
-                    if (typeof Graph.nodeCanvasObject === 'function') Graph.nodeCanvasObject(Graph.nodeCanvasObject());
+                    if (typeof Graph.refresh === 'function') {
+                        Graph.refresh();
+                    }
                 }
             } catch (err) {
                 console.warn("Errore durante il refresh del grafo:", err);
@@ -1277,8 +1279,11 @@
                                 Graph.nodeVal(Graph.nodeVal());
                             }
                         })
-                        .onNodeClick(node => handleNodeClick(node))
-                        .clickDistanceThreshold(8);
+                        .onNodeClick(node => handleNodeClick(node));
+
+                    if (typeof Graph.clickDistanceThreshold === 'function') {
+                        Graph.clickDistanceThreshold(8);
+                    }
 
                     // Abilita la rotazione in idle della camera
                     setTimeout(() => {
@@ -1410,11 +1415,18 @@
                     .cooldownTime(4000)
                     .d3VelocityDecay(0.35)
                     .onNodeHover(node => {
+                        const prevHoverNode = hoverNode;
                         hoverNode = node || null;
                         document.body.style.cursor = node ? 'pointer' : null;
+                        if (prevHoverNode !== hoverNode && typeof Graph.refresh === 'function') {
+                            Graph.refresh();
+                        }
                     })
-                    .onNodeClick(node => handleNodeClick(node))
-                    .clickDistanceThreshold(8);
+                    .onNodeClick(node => handleNodeClick(node));
+                
+                if (typeof Graph.clickDistanceThreshold === 'function') {
+                    Graph.clickDistanceThreshold(8);
+                }
                     
             } catch (err) {
                 console.error("Errore nell'inizializzazione del grafo 2D Canvas:", err);
@@ -1536,10 +1548,12 @@
                 }
                 
                 // Forza l'aggiornamento grafico dei nodi e link in 2D e 3D in modo nativo e pulito
-                if (Graph.nodeColor) Graph.nodeColor(Graph.nodeColor());
-                if (Graph.nodeVal) Graph.nodeVal(Graph.nodeVal());
-                if (Graph.linkColor) Graph.linkColor(Graph.linkColor());
-                if (Graph.linkWidth) Graph.linkWidth(Graph.linkWidth());
+                if (is3D) {
+                    if (typeof Graph.nodeColor === 'function') Graph.nodeColor(Graph.nodeColor());
+                    if (typeof Graph.nodeVal === 'function') Graph.nodeVal(Graph.nodeVal());
+                }
+                if (typeof Graph.linkColor === 'function') Graph.linkColor(Graph.linkColor());
+                if (typeof Graph.linkWidth === 'function') Graph.linkWidth(Graph.linkWidth());
                 
                 if (typeof Graph.linkDirectionalParticles === 'function') {
                     Graph.linkDirectionalParticles(Graph.linkDirectionalParticles());
@@ -1548,7 +1562,7 @@
                 }
                 
                 // Forza il ridisegno in 2D Canvas
-                if (typeof Graph.refresh === 'function') {
+                if (!is3D && typeof Graph.refresh === 'function') {
                     Graph.refresh();
                 }
  
@@ -1867,11 +1881,14 @@
             highlightNodes(relevantNodes, true);
             refreshGraphRendering();
 
-            if (Graph && typeof Graph.controls === 'function') {
-                try {
-                    const controls = Graph.controls();
-                    if (controls) {
-                        if (is3D) {
+            if (Graph) {
+                if (typeof Graph.d3ReheatSimulation === 'function') {
+                    Graph.d3ReheatSimulation();
+                }
+                if (is3D && typeof Graph.controls === 'function') {
+                    try {
+                        const controls = Graph.controls();
+                        if (controls) {
                             controls.autoRotate = true;
                             controls.autoRotateSpeed = 8.0;
 
@@ -1890,12 +1907,9 @@
                                 controls.target.set(targetX, targetY, targetZ);
                             }
                         }
-                        if (typeof Graph.d3ReheatSimulation === 'function') {
-                            Graph.d3ReheatSimulation();
-                        }
+                    } catch (camErr) {
+                        console.warn("Impossibile far orbitare la camera:", camErr);
                     }
-                } catch (camErr) {
-                    console.warn("Impossibile far orbitare la camera:", camErr);
                 }
             }
 
