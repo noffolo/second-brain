@@ -108,7 +108,7 @@
             border: none;
             padding: 0 30px;
             height: 60px;
-            border-radius: 12px;
+            border-radius: 100vw; /* Bordo a pillola */
             cursor: pointer;
             font-weight: 900;
             font-size: 1.0rem; /* Uguale al tasto invia */
@@ -388,7 +388,7 @@
             border: none;
             padding: 0 30px;
             height: 60px;
-            border-radius: 12px;
+            border-radius: 100vw; /* Bordo a pillola */
             font-weight: 900;
             font-size: 1.0rem; /* Ridotto a 1.0rem per coordinamento */
             cursor: pointer;
@@ -782,6 +782,28 @@
     </div>
 
     <script>
+        // Gestore globale degli errori JS per mostrare diagnostica in chat
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error("Global JS Error:", message, "at", source, ":", lineno);
+            setTimeout(() => {
+                const chatMessages = document.getElementById('chat-messages');
+                if (chatMessages) {
+                    const errDiv = document.createElement('div');
+                    errDiv.style.color = '#ff6b6b';
+                    errDiv.style.padding = '12px 16px';
+                    errDiv.style.background = 'rgba(255,107,107,0.08)';
+                    errDiv.style.border = '1px solid rgba(255,107,107,0.2)';
+                    errDiv.style.borderRadius = '12px';
+                    errDiv.style.fontSize = '0.9rem';
+                    errDiv.style.lineHeight = '1.4';
+                    errDiv.innerHTML = `<strong>Errore JavaScript rilevato:</strong><br>${message}<br><small>in ${source.split('/').pop()}:${lineno}:${colno}</small>`;
+                    chatMessages.appendChild(errDiv);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+            }, 500);
+            return false;
+        };
+
         let graphData = { nodes: [], links: [] };
         let is3D = true; // Impostiamo 3D come default
         let Graph = null;
@@ -957,7 +979,7 @@
                 if (!Graph) {
                     if (typeof ForceGraph3D === 'undefined') {
                         console.warn("ForceGraph3D non è caricato. Il grafo non sarà visualizzato.");
-                        showGraphError();
+                        showGraphError("ForceGraph3D is undefined");
                         return;
                     }
                     Graph = ForceGraph3D()(container)
@@ -1084,11 +1106,11 @@
                 }, 100);
             } catch (err) {
                 console.error("Errore nell'inizializzazione del grafo WebGL:", err);
-                showGraphError();
+                showGraphError(err);
             }
         }
 
-        function showGraphError() {
+        function showGraphError(err) {
             if (!container) return;
             if (container.querySelector('.graph-error-msg')) return;
             
@@ -1102,10 +1124,16 @@
             errDiv.style.textAlign = 'center';
             errDiv.style.padding = '20px';
             errDiv.style.zIndex = '5';
+            
+            let details = "WebGL non supportato o errore nel caricamento delle librerie esterne. Il chatbot rimane completamente operativo.";
+            if (err) {
+                details += `<br><br><code style="color: #ff6b6b; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; display: inline-block; font-family: monospace; font-size: 0.85rem; max-width: 90%; word-break: break-all;">${err.message || err}</code>`;
+            }
+            
             errDiv.innerHTML = `
                 <svg viewBox="0 0 24 24" style="width: 48px; height: 48px; fill: none; stroke: var(--accent-purple); stroke-width: 1.5; margin-bottom: 12px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 <h3 style="margin-bottom: 8px;">Grafica WebGL non disponibile</h3>
-                <p style="font-size:0.9rem; max-width: 300px; line-height: 1.4;">WebGL non supportato o errore nel caricamento delle librerie esterne. Il chatbot rimane completamente operativo.</p>
+                <p style="font-size:0.9rem; max-width: 300px; line-height: 1.4;">${details}</p>
             `;
             container.appendChild(errDiv);
         }
