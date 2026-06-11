@@ -102,7 +102,9 @@ def imap_sync_to_raw() -> int:
         
         try:
             # Connessione SSL
-            mail_client = imaplib.IMAP4_SSL(server, int(port))
+            import ssl
+            ssl_context = ssl._create_unverified_context()
+            mail_client = imaplib.IMAP4_SSL(server, int(port), ssl_context=ssl_context)
             mail_client.login(username, password)
             
             # Seleziona la mailbox

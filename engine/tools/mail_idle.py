@@ -27,7 +27,9 @@ def _sync_idle_loop(server_host, port, username, password, folder, callback):
             print(f"[IMAP-IDLE] Connessione a {server_host}:{port} ({username})...", flush=True)
             use_ssl = int(port) == 993
             
-            client = IMAPClient(server_host, port=int(port), ssl=use_ssl, timeout=30)
+            import ssl
+            ssl_context = ssl._create_unverified_context()
+            client = IMAPClient(server_host, port=int(port), ssl=use_ssl, ssl_context=ssl_context if use_ssl else None, timeout=30)
             client.login(username, password)
             client.select_folder(folder)
             

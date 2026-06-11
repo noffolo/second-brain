@@ -753,8 +753,8 @@ async def run_ingest(dry_run: bool = False, source_filter: str = None):
     processed_count = 0
     batch_size = 10
     
-    # Concorrenza asincrona parallela
-    concurrency_limit = 5
+    # Concorrenza asincrona parallela: 1 per modelli locali (Ollama), 5 per cloud
+    concurrency_limit = 1 if model.startswith("ollama") else 5
     semaphore = asyncio.Semaphore(concurrency_limit)
     write_lock = asyncio.Lock()
     newly_processed = []
