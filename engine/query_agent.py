@@ -10,6 +10,75 @@ from engine.tools.notion_calendar import create_notion_calendar_event
 from engine.git_ops import auto_commit
 
 # Custom tool for agent
+def search_internet(query: str) -> str:
+    """
+    Cerca su internet informazioni aggiornate tramite DuckDuckGo.
+    Restituisce un riassunto dei risultati trovati.
+    
+    Args:
+        query: La stringa da cercare.
+    """
+    import urllib.request
+    import urllib.parse
+    import re
+    import ssl
+    
+    if not query.strip():
+        return "Nessuna query fornita."
+        
+    try:
+        url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        )
+        context = ssl._create_unverified_context()
+        with urllib.request.urlopen(req, timeout=4, context=context) as response:
+            html = response.read().decode('utf-8')
+            
+        results = []
+        for match in re.finditer(r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', html, re.DOTALL):
+            link = match.group(1)
+            title = match.group(2)
+            
+            start_pos = match.end()
+            next_a = html.find('class="result__a"', start_pos)
+            search_area = html[start_pos:next_a] if next_a != -1 else html[start_pos:]
+            
+            snippet_match = re.search(r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>', search_area, re.DOTALL)
+            if snippet_match:
+                snippet = snippet_match.group(1)
+                
+                # Salta le pubblicità
+                if "badge--ad" in search_area or "ad_provider" in link:
+                    continue
+                    
+                if "uddg=" in link:
+                    try:
+                        link = urllib.parse.unquote(link.split("uddg=")[1].split("&")[0])
+                    except Exception:
+                        pass
+                
+                title_clean = re.sub(r'<.*?>', '', title).strip()
+                snippet_clean = re.sub(r'<.*?>', '', snippet).strip()
+                
+                title_clean = title_clean.replace("&amp;", "&").replace("&quot;", '"').replace("&#x27;", "'")
+                snippet_clean = snippet_clean.replace("&amp;", "&").replace("&quot;", '"').replace("&#x27;", "'")
+                
+                results.append(f"Titolo: {title_clean}\nLink: {link}\nDescrizione: {snippet_clean}\n")
+                if len(results) >= 4:
+                    break
+                    
+        if not results:
+            return f"Nessun risultato web trovato per '{query}'."
+            
+        return "--- RISULTATI DELLA RICERCA INTERNET ---\n" + "\n".join(results)
+    except Exception as e:
+        print(f"[search_internet] Errore: {e}")
+        return f"Errore durante la ricerca internet: {e}"
+
 def read_wiki_page_content(relative_path: str) -> str:
     """
     Legge il contenuto di qualsiasi pagina markdown nel vault (concetti, entità, sorgenti o diari).
@@ -147,11 +216,12 @@ async def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
     """
     Esegue una ricerca ibrida unendo i risultati semantici del Vector DB
     con la ricerca testuale classica (search_wiki) basata su parole chiave.
-    Espande poi i risultati includendo le note adiacenti nel grafo (Graph RAG).
+    Assegna un punteggio cumulativo a ciascun file candidato e ordina per rilevanza.
+    Infine espande i risultati includendo le note adiacenti nel grafo (Graph RAG).
     """
     keywords = extract_keywords(query)
     vault = get_vault_path()
-    existing_folders = [d for d in ["wiki", "CRM", "journal", "Meetings", "Microthemes"] if os.path.exists(os.path.join(vault, d))]
+    existing_folders = [d for d in ["wiki", "CRM", "journal", "Meetings", "Microthemes", "raw"] if os.path.exists(os.path.join(vault, d))]
     
     tasks = []
     
@@ -159,148 +229,147 @@ async def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
     and_task = None
     if len(keywords) > 1:
         async def run_and_search():
-            grep_tasks = [run_git_grep(kw, vault, existing_folders) for kw in keywords[:3]]
+            grep_tasks = [run_git_grep(kw, vault, existing_folders) for kw in keywords[:4]]
             file_sets = await asyncio.gather(*grep_tasks)
-            if file_sets:
-                return set.intersection(*file_sets)
+            # Rimuove set vuoti per fare l'intersezione solo tra quelli che hanno trovato corrispondenze
+            valid_sets = [fs for fs in file_sets if fs]
+            if valid_sets:
+                return set.intersection(*valid_sets)
             return set()
         and_task = asyncio.create_task(run_and_search())
         tasks.append(and_task)
         
     # 1. Ricerca Vettoriale Semantica
-    vector_task = asyncio.create_task(run_vector_search(query, limit))
+    vector_task = asyncio.create_task(run_vector_search(query, limit * 2))
     tasks.append(vector_task)
     
-    # 2. Ricerca Testuale Classica
-    keyword_tasks = [asyncio.create_task(run_keyword_search(kw)) for kw in keywords[:3]]
+    # 2. Ricerca Testuale Classica (fino alle prime 6 parole chiave significative)
+    keyword_tasks = [asyncio.create_task(run_keyword_search(kw)) for kw in keywords[:6]]
     tasks.extend(keyword_tasks)
     
     # Esegue tutte le ricerche in parallelo
     await asyncio.gather(*tasks, return_exceptions=True)
     
-    seen_paths = set()
-    results = []
+    candidates = {} # rel_path -> candidate_dict
     
-    # Raccoglie i risultati di AND search (priorità massima)
+    # Helper per aggiungere candidati
+    def add_candidate(rel_path: str, title: str, snippet: str, source: str, extra_data: dict = None):
+        rel_path = rel_path.replace("\\", "/").strip()
+        if not rel_path:
+            return
+        if rel_path not in candidates:
+            # Se non ha snippet ed il file esiste, lo legge
+            if not snippet:
+                abs_filepath = os.path.join(vault, rel_path)
+                if os.path.exists(abs_filepath):
+                    try:
+                        with open(abs_filepath, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        if content.startswith("---"):
+                            parts = content.split("---", 2)
+                            body = parts[2] if len(parts) >= 3 else content
+                        else:
+                            body = content
+                        body_clean = body.strip()
+                        snippet = body_clean[:600] + "..." if len(body_clean) > 600 else body_clean
+                    except Exception:
+                        snippet = ""
+            candidates[rel_path] = {
+                "path": rel_path,
+                "title": title or os.path.splitext(os.path.basename(rel_path))[0],
+                "snippet": snippet,
+                "sources": {source},
+                "vector_distance": extra_data.get("distance") if extra_data else None,
+                "score": 0.0
+            }
+        else:
+            candidates[rel_path]["sources"].add(source)
+            if extra_data and extra_data.get("distance") is not None:
+                candidates[rel_path]["vector_distance"] = extra_data["distance"]
+                
+    # Raccoglie AND search
     if and_task:
         try:
             intersected = and_task.result()
             for rel_filepath in intersected:
-                rel_filepath = rel_filepath.replace("\\", "/")
-                if rel_filepath not in seen_paths:
-                    seen_paths.add(rel_filepath)
-                    abs_filepath = os.path.join(vault, rel_filepath)
-                    if os.path.exists(abs_filepath):
-                        try:
-                            with open(abs_filepath, "r", encoding="utf-8") as f:
-                                content = f.read()
-                            if content.startswith("---"):
-                                parts = content.split("---", 2)
-                                body = parts[2] if len(parts) >= 3 else content
-                            else:
-                                body = content
-                            body_clean = body.strip()
-                            title = os.path.splitext(os.path.basename(rel_filepath))[0]
-                            results.append({
-                                "path": rel_filepath,
-                                "title": title,
-                                "snippet": body_clean[:400] + "..." if len(body_clean) > 400 else body_clean
-                            })
-                        except Exception:
-                            pass
-                        if len(results) >= limit:
-                            break
+                add_candidate(rel_filepath, None, "", "and")
         except Exception as e:
             print(f"[Hybrid Search] Errore recupero AND: {e}")
             
-    # Raccoglie i risultati di ricerca vettoriale
+    # Raccoglie ricerca vettoriale
     try:
         vec_results = vector_task.result()
         for r in vec_results:
-            if r.get('distance', 0) > 1.15:
+            # Rifiuta solo se la distanza del vettore è estremamente alta
+            if r.get('distance', 0) > 1.25:
                 continue
-            path_clean = r['path'].replace("\\", "/")
-            if path_clean not in seen_paths:
-                seen_paths.add(path_clean)
-                results.append({
-                    "path": path_clean,
-                    "title": r['title'],
-                    "snippet": r['snippet']
-                })
-            if len(results) >= limit:
-                break
+            add_candidate(r['path'], r['title'], r['snippet'], "vector", {"distance": r['distance']})
     except Exception as e:
         print(f"[Hybrid Search] Errore recupero vettoriale: {e}")
         
-    # Raccoglie i risultati keyword
+    # Raccoglie keyword searches
     for kt in keyword_tasks:
-        if len(results) >= limit:
-            break
         try:
             kw_results = kt.result()
             kw = keywords[keyword_tasks.index(kt)]
             for r in kw_results:
-                path_clean = r['path'].replace("\\", "/")
-                if path_clean not in seen_paths:
-                    filepath = os.path.join(vault, path_clean)
-                    snippet = r.get('snippet', '')
-                    if os.path.exists(filepath):
-                        try:
-                            with open(filepath, "r", encoding="utf-8") as f_read:
-                                body = f_read.read(1200)
-                                if body.strip():
-                                    snippet = body.strip()
-                        except Exception:
-                            pass
-                            
-                        # Filtro anti-rumore per query multi-parola
-                        is_relevant = True
-                        if len(keywords) >= 2:
-                            capitalized_words = {w.strip("’'").lower() for w in query.split() if w and w[0].isupper()}
-                            query_words = query.split()
-                            if query_words and query_words[0][0].isupper() and len(capitalized_words) > 1:
-                                capitalized_words.discard(query_words[0].strip("’'").lower())
-                            capitalized_words.discard("ff3300")
-                            
-                            in_title = kw.lower() in r['title'].lower()
-                            is_proper_noun = kw.lower() in capitalized_words
-                            
-                            if not in_title and not is_proper_noun:
-                                if capitalized_words:
-                                    body_lower = snippet.lower()
-                                    title_lower = r['title'].lower()
-                                    has_proper_match = any(pw in body_lower or pw in title_lower for pw in capitalized_words)
-                                    if not has_proper_match:
-                                        is_relevant = False
-                                else:
-                                    other_kws = [k.lower() for k in keywords if k != kw and len(k) >= 4]
-                                    if not other_kws:
-                                        other_kws = [k.lower() for k in keywords if k != kw]
-                                    body_lower = snippet.lower()
-                                    title_lower = r['title'].lower()
-                                    has_other_match = any(okw in body_lower or okw in title_lower for okw in other_kws)
-                                    if not has_other_match:
-                                        is_relevant = False
-                                    
-                        if not is_relevant:
-                            continue
-                            
-                        seen_paths.add(path_clean)
-                        results.append({
-                            "path": path_clean,
-                            "title": r['title'],
-                            "snippet": snippet
-                        })
-                    if len(results) >= limit:
-                        break
+                add_candidate(r['path'], r['title'], r.get('snippet', ''), f"keyword:{kw}")
         except Exception as e:
-            print(f"[Hybrid Search] Errore recupero keyword per {kw}: {e}")
+            pass
             
+    # CALCOLO DELLO SCORE CUMULATIVO
+    for path, cand in candidates.items():
+        score = 0.0
+        title_lower = cand["title"].lower()
+        snippet_lower = cand["snippet"].lower()
+        
+        # 1. Punteggio sorgente di provenienza
+        if "and" in cand["sources"]:
+            score += 120.0
+            
+        if "vector" in cand["sources"] and cand["vector_distance"] is not None:
+            # chroma cosine distance: minore è la distanza, maggiore è il punteggio
+            score += max(0.0, (1.25 - cand["vector_distance"]) * 90.0)
+            
+        # 2. Corrispondenza parole chiave (Keywords)
+        matched_keywords = set()
+        for kw in keywords:
+            kw_lower = kw.lower()
+            
+            # Match nel titolo
+            if kw_lower == title_lower:
+                score += 150.0  # Corrispondenza esatta titolo
+                matched_keywords.add(kw)
+            elif kw_lower in title_lower:
+                score += 80.0   # Corrispondenza parziale titolo
+                matched_keywords.add(kw)
+                
+            # Match nel corpo del testo
+            if kw_lower in snippet_lower:
+                score += 40.0   # Trovata nel corpo
+                matched_keywords.add(kw)
+                
+        # Bonus per il numero totale di parole chiave uniche trovate in questa nota
+        score += len(matched_keywords) * 30.0
+        
+        # 3. Preferenza per note wiki formali rispetto a raw files
+        if path.startswith("wiki/"):
+            score += 15.0
+            
+        cand["score"] = score
+        
+    # Ordinamento decrescente per score
+    sorted_candidates = sorted(candidates.values(), key=lambda x: x["score"], reverse=True)
+    
+    # Seleziona i migliori candidati prima dell'espansione dei vicini del grafo
+    top_candidates = sorted_candidates[:limit]
+    
     # 3. Espansione dei vicini del grafo (Graph RAG)
     try:
-        results = expand_with_graph_neighbors(results, vault, max_neighbors=5)
+        results = expand_with_graph_neighbors(top_candidates, vault, max_neighbors=5)
     except Exception as e:
         print(f"[Graph RAG] Errore espansione vicini: {e}")
+        results = top_candidates
         
     return results[:limit]
 
@@ -757,7 +826,8 @@ Le tue istruzioni base sono:
             get_detailed_list,
             create_notion_task,
             create_notion_calendar_event,
-            create_wiki_page_tool
+            create_wiki_page_tool,
+            search_internet
         ],
         **kwargs
     )
@@ -803,20 +873,37 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig, his
             except Exception as blacklist_err:
                 print(f"[Query Fallback] Errore nel salvataggio della blacklist: {blacklist_err}")
         
-        # 2. RAG locale: cerca nel vault ed estrae il contesto tramite ricerca ibrida
+        # 2. RAG locale: cerca nel vault (limite elevato a 15) ed effettua una ricerca web in parallelo
         search_results = []
+        web_results = ""
+        
+        async def run_searches():
+            nonlocal search_results, web_results
+            local_task = hybrid_search_vault_func(question, 15)
+            web_task = asyncio.to_thread(search_internet, question)
+            
+            res_local, res_web = await asyncio.gather(local_task, web_task, return_exceptions=True)
+            if not isinstance(res_local, Exception):
+                search_results = res_local
+            if not isinstance(res_web, Exception):
+                web_results = res_web
+
         try:
-            search_results = await hybrid_search_vault_func(question, 5)
+            await run_searches()
         except Exception as e:
-            print(f"Errore query ricerca ibrida: {e}")
+            print(f"Errore query ricerca ibrida o internet: {e}")
             
         context = ""
         if search_results:
-            context = "\n\nRisultati della ricerca nel vault:\n"
-            context += "--- FRAMMENTI PIÙ RILEVANTI ---\n"
+            context = "\n\nRisultati della ricerca nel vault (note locali, mail, chat):\n"
+            context += "--- NOTE LOCALI PIÙ RILEVANTI ---\n"
             for r in search_results:
                 context += f"\n--- Nota: {r['path']} ({r['title']}) ---\n{r['snippet']}\n"
                 
+        if web_results and "--- RISULTATI DELLA RICERCA INTERNET ---" in web_results:
+            context += "\n\nRisultati recenti e aggiornati trovati su Internet (ricerca web):\n"
+            context += web_results + "\n"
+            
         # Se la domanda sembra quantitativa o di sintesi, includi i dati statistici deterministici nel contesto
         stats_context = ""
         question_lower = question.lower()

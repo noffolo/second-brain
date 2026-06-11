@@ -247,7 +247,7 @@ def search_wiki(query: str) -> list[dict]:
             allowed_files = []
             for rel_filepath in matching_files:
                 allowed = False
-                for sdir in ["wiki", "CRM", "journal", "Meetings", "Microthemes"]:
+                for sdir in ["wiki", "CRM", "journal", "Meetings", "Microthemes", "raw"]:
                     if rel_filepath.startswith(sdir + "/") or rel_filepath.startswith(sdir + "\\"):
                         allowed = True
                         break
@@ -292,7 +292,7 @@ def search_wiki(query: str) -> list[dict]:
         print(f"Errore durante l'esecuzione di git grep: {e}. Fallback su scansione lineare.")
 
     # Fallback a scansione lineare originale ordinata per rilevanza
-    search_dirs = ["wiki", "CRM", "journal", "Meetings", "Microthemes"]
+    search_dirs = ["wiki", "CRM", "journal", "Meetings", "Microthemes", "raw"]
     temp_results = []
     for sdir in search_dirs:
         abs_sdir = os.path.join(vault, sdir)

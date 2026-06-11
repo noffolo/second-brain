@@ -2200,9 +2200,19 @@
         function refreshGraphRendering() {
             if (!Graph) return;
             if (is3D) {
-                Graph.nodeThreeObject(Graph.nodeThreeObject()); // Force refresh sprites
+                Graph.nodeColor(Graph.nodeColor());
+                Graph.nodeVal(Graph.nodeVal());
+                Graph.linkColor(Graph.linkColor());
+                Graph.linkWidth(Graph.linkWidth());
+                if (typeof Graph.refresh === 'function') {
+                    Graph.refresh();
+                }
             } else {
-                Graph.graphData(graphData); // Re-trigger canvas draws
+                if (typeof Graph.refresh === 'function') {
+                    Graph.refresh();
+                } else {
+                    Graph.graphData(graphData);
+                }
             }
         }
 
