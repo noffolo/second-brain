@@ -101,7 +101,7 @@ def save_rate_limited_model(model: str, duration_seconds: int = 1800):
     except Exception as e:
         print(f"[Circuit Breaker] Errore di scrittura file limitazioni: {e}")
 
-def is_key_rate_limited(api_key: str) -> bool:
+def is_key_rate_limited(api_key: str, model: str = None) -> bool:
     import time
     if not os.path.exists(RATE_LIMITS_FILE):
         return False
@@ -110,6 +110,8 @@ def is_key_rate_limited(api_key: str) -> bool:
             data = json.load(f)
         now = time.time()
         key_id = f"key_{api_key[:12]}"
+        if model:
+            key_id = f"key_{api_key[:12]}_{model}"
         expiry = data.get(key_id)
         if expiry and now < expiry:
             return True
@@ -117,7 +119,7 @@ def is_key_rate_limited(api_key: str) -> bool:
         pass
     return False
 
-def save_rate_limited_key(api_key: str, duration_seconds: int = 300):
+def save_rate_limited_key(api_key: str, model: str = None, duration_seconds: int = 300):
     import time
     data = {}
     if os.path.exists(RATE_LIMITS_FILE):
@@ -129,6 +131,8 @@ def save_rate_limited_key(api_key: str, duration_seconds: int = 300):
     
     now = time.time()
     key_id = f"key_{api_key[:12]}"
+    if model:
+        key_id = f"key_{api_key[:12]}_{model}"
     data[key_id] = now + duration_seconds
     
     # Pulisci record scaduti
@@ -140,7 +144,8 @@ def save_rate_limited_key(api_key: str, duration_seconds: int = 300):
     try:
         with open(RATE_LIMITS_FILE, "w") as f:
             json.dump(clean_data, f)
-        print(f"[Circuit Breaker] Chiave {api_key[:10]}... registrata come limitata per {duration_seconds}s.", flush=True)
+        model_str = f" per modello {model}" if model else ""
+        print(f"[Circuit Breaker] Chiave {api_key[:10]}...{model_str} registrata come limitata per {duration_seconds}s.", flush=True)
     except Exception as e:
         print(f"[Circuit Breaker] Errore di scrittura file limitazioni: {e}", flush=True)
 
@@ -346,9 +351,9 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
             errors.append(f"Gemini Principale ({gemini_config.model}): Saltato (in quota-limit).")
         else:
             for current_key in keys:
-                if is_key_rate_limited(current_key):
-                    print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... (in blacklist per 429).")
-                    errors.append(f"Chiave {current_key[:10]}...: Saltata (in blacklist per 429).")
+                if is_key_rate_limited(current_key, gemini_config.model):
+                    print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... (in blacklist per 429 su {gemini_config.model}).")
+                    errors.append(f"Chiave {current_key[:10]}...: Saltata (in blacklist per 429 su {gemini_config.model}).")
                     continue
                 os.environ["GEMINI_API_KEY"] = current_key
                 try:
@@ -369,12 +374,12 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                     is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
                     if is_rate_limit:
                         print(f"Rilevato limite di quota/frequenza (429) per {gemini_config.model} con chiave {current_key[:10]}. Inserisco in blacklist per 5 minuti...")
-                        save_rate_limited_key(current_key)
+                        save_rate_limited_key(current_key, gemini_config.model)
                     else:
                         err_msg = str(e)
                         print(f"Gemini API ({gemini_config.model}) fallita con chiave {current_key[:10]} ({err_msg[:80]}...). Tento chiave successiva...")
             
-            if keys and all(is_key_rate_limited(k) for k in keys):
+            if keys and all(is_key_rate_limited(k, gemini_config.model) for k in keys):
                 print(f"Tutte le chiavi hanno fallito/sono in rate limit per {gemini_config.model}. Attivo il circuit breaker per questo modello.")
                 save_rate_limited_model(gemini_config.model)
                         
@@ -389,9 +394,9 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                 continue
             
             for current_key in keys:
-                if is_key_rate_limited(current_key):
+                if is_key_rate_limited(current_key, fallback_model):
                     print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... per fallback {fallback_model} (in blacklist per 429).")
-                    errors.append(f"Chiave {current_key[:10]}... (fallback): Saltata (in blacklist per 429).")
+                    errors.append(f"Chiave {current_key[:10]}... (fallback): Saltata (in blacklist per 429 su {fallback_model}).")
                     continue
                 os.environ["GEMINI_API_KEY"] = current_key
                 try:
@@ -412,11 +417,11 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                     is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
                     if is_rate_limit2:
                         print(f"Rilevato limite di quota/frequenza (429) per fallback {fallback_model} con chiave {current_key[:10]}. Inserisco in blacklist per 5 minuti...")
-                        save_rate_limited_key(current_key)
+                        save_rate_limited_key(current_key, fallback_model)
                     else:
                         print(f"Gemini fallback ({fallback_model}) fallito con chiave {current_key[:10]}: {e2}. Tento chiave successiva...")
             
-            if keys and all(is_key_rate_limited(k) for k in keys):
+            if keys and all(is_key_rate_limited(k, fallback_model) for k in keys):
                 print(f"Tutte le chiavi hanno fallito/sono in rate limit per {fallback_model}. Attivo il circuit breaker per questo modello.")
                 save_rate_limited_model(fallback_model)
     else:

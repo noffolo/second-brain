@@ -777,7 +777,7 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig, his
         # 2. RAG locale: cerca nel vault ed estrae il contesto tramite ricerca ibrida
         search_results = []
         try:
-            search_results = await hybrid_search_vault_func(question, 15)
+            search_results = await hybrid_search_vault_func(question, 5)
         except Exception as e:
             print(f"Errore query ricerca ibrida: {e}")
             
