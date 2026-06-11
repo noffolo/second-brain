@@ -96,7 +96,7 @@
 
         /* SIDEBAR */
         .sidebar {
-            width: 250px;
+            width: 80px;
             height: 100vh;
             background: rgba(10, 12, 16, 0.9);
             border-right: 1px solid var(--panel-border);
@@ -106,44 +106,57 @@
             flex-direction: column;
             flex-shrink: 0;
             z-index: 50;
+            transition: width 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
         }
 
         .sidebar-brand {
-            padding: 30px 24px;
-            font-size: 1.35rem;
-            font-weight: 900;
-            color: var(--text-primary);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 30px 0;
             display: flex;
             align-items: center;
-            gap: 10px;
-            letter-spacing: -0.5px;
+            justify-content: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar-brand .circled-text {
+            display: none;
+        }
+
+        .sidebar-brand::after {
+            content: '🧠';
+            font-size: 1.6rem;
+            filter: drop-shadow(0 0 10px var(--accent-purple-glow));
         }
 
         .sidebar-menu {
             flex-grow: 1;
-            padding: 24px 16px;
+            padding: 24px 8px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            align-items: center;
+            gap: 12px;
         }
 
         .sidebar-item {
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 14px 18px;
+            justify-content: center;
+            width: 50px;
+            height: 50px;
+            padding: 0;
             color: var(--text-secondary);
             text-decoration: none;
             border-radius: 12px;
             font-weight: 600;
-            font-size: 0.95rem;
             transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
         }
 
+        .sidebar-item span {
+            display: none;
+        }
+
         .sidebar-item svg {
-            width: 18px;
-            height: 18px;
+            width: 22px;
+            height: 22px;
             fill: none;
             stroke: currentColor;
             stroke-width: 2;
@@ -152,7 +165,7 @@
         .sidebar-item:hover {
             color: var(--text-primary);
             background: rgba(255, 255, 255, 0.04);
-            transform: translateX(2px);
+            transform: scale(1.05);
         }
 
         .sidebar-item.active {
@@ -162,20 +175,28 @@
         }
 
         .sidebar-status {
-            padding: 20px 24px;
+            padding: 20px 0;
             border-top: 1px solid rgba(255, 255, 255, 0.05);
             background: rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .status-indicator {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 0.8rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
+            justify-content: center;
+        }
+
+        .status-indicator span {
+            display: none;
+        }
+
+        .status-queue-info {
+            display: none;
         }
 
         .status-dot {
@@ -193,9 +214,21 @@
             100% { box-shadow: 0 0 4px var(--accent-green); }
         }
 
-        .status-queue-info {
-            font-size: 0.8rem;
-            color: var(--text-muted);
+        /* Badge per la coda di file in background */
+        .badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: var(--accent-red);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 800;
+            padding: 2px 5px;
+            border-radius: 10px;
+            border: 2px solid #07080b;
+            min-width: 14px;
+            text-align: center;
+            line-height: 1;
         }
 
         /* MAIN CONTENT AREA */
@@ -1268,21 +1301,22 @@
         </div>
         
         <div class="sidebar-menu">
-            <a href="#" class="sidebar-item active" data-tab="tab-brain">
+            <a href="#" class="sidebar-item active" data-tab="tab-brain" title="Brain Center">
                 <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                Brain Center
+                <span>Brain Center</span>
             </a>
-            <a href="#" class="sidebar-item" data-tab="tab-agenda">
+            <a href="#" class="sidebar-item" data-tab="tab-agenda" title="Notion Agenda">
                 <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                Notion Agenda
+                <span>Notion Agenda</span>
             </a>
-            <a href="#" class="sidebar-item" data-tab="tab-ingest">
+            <a href="#" class="sidebar-item" data-tab="tab-ingest" title="Ingestion Terminal" style="position: relative;">
                 <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                Ingestion Terminal
+                <span class="badge" id="sidebar-queue-badge" style="display: none;">0</span>
+                <span>Ingestion Terminal</span>
             </a>
-            <a href="#" class="sidebar-item" data-tab="tab-editor">
+            <a href="#" class="sidebar-item" data-tab="tab-editor" title="Prompt & Profilo">
                 <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                Prompt & Profilo
+                <span>Prompt & Profilo</span>
             </a>
         </div>
         
@@ -1696,11 +1730,19 @@
         }
 
         async function ensure3DLoaded() {
-            if (typeof ForceGraph3D !== 'undefined') return;
+            if (typeof ForceGraph3D !== 'undefined') return true;
             showGraphError("Caricamento componenti 3D...");
-            await loadScript('/static/js/three.min.js');
-            await loadScript('/static/js/3d-force-graph.min.js');
-            console.log("Librerie 3D caricate.");
+            try {
+                await loadScript('/static/js/three.min.js');
+                window.THREE_LEGACY = window.THREE;
+                window.THREE = undefined; // Isola per non inquinare l'inizializzazione di 3d-force-graph
+                await loadScript('/static/js/3d-force-graph.min.js');
+                console.log("Librerie 3D caricate.");
+                return true;
+            } catch (err) {
+                console.error("Errore nel caricamento delle librerie 3D:", err);
+                return false;
+            }
         }
 
         function isWebGLAvailable() {
@@ -1716,77 +1758,156 @@
             return colorPalette[group] || colorPalette[1];
         }
 
+        function getLinkType(link) {
+            if (!window.primaryActiveNodes || window.primaryActiveNodes.size === 0) return 'default';
+            
+            const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+            const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+            
+            const srcPrimary = window.primaryActiveNodes.has(srcId);
+            const tgtPrimary = window.primaryActiveNodes.has(tgtId);
+            const srcSecondary = window.secondaryActiveNodes.has(srcId);
+            const tgtSecondary = window.secondaryActiveNodes.has(tgtId);
+            
+            if (srcPrimary && tgtPrimary) return 'strong';
+            if ((srcPrimary && tgtSecondary) || (tgtPrimary && srcSecondary)) return 'medium';
+            if (srcSecondary && tgtSecondary) return 'weak';
+            return 'inactive';
+        }
+
         function getLinkColor(link) {
-            const isSourceActive = window.primaryActiveNodes.has(link.source.id || link.source) || window.secondaryActiveNodes.has(link.source.id || link.source);
-            const isTargetActive = window.primaryActiveNodes.has(link.target.id || link.target) || window.secondaryActiveNodes.has(link.target.id || link.target);
-            if (isSourceActive && isTargetActive) {
-                return 'rgba(0, 245, 212, 0.8)';
-            }
-            return 'rgba(255, 255, 255, 0.08)';
+            const type = getLinkType(link);
+            if (type === 'default') return 'rgba(157, 78, 221, 0.35)';
+            if (type === 'strong') return 'rgba(0, 245, 212, 0.7)';
+            if (type === 'medium') return 'rgba(0, 245, 212, 0.45)';
+            if (type === 'weak') return 'rgba(157, 78, 221, 0.25)';
+            return 'rgba(255, 255, 255, 0.1)';
         }
 
         function getLinkWidth(link) {
-            const isSourceActive = window.primaryActiveNodes.has(link.source.id || link.source) || window.secondaryActiveNodes.has(link.source.id || link.source);
-            const isTargetActive = window.primaryActiveNodes.has(link.target.id || link.target) || window.secondaryActiveNodes.has(link.target.id || link.target);
-            return (isSourceActive && isTargetActive) ? 2.5 : 0.8;
+            const type = getLinkType(link);
+            if (type === 'default') return 2.4;
+            if (type === 'strong') return 8.0;
+            if (type === 'medium') return 4.4;
+            if (type === 'weak') return 2.4;
+            return 1.2;
         }
 
         function getLinkParticles(link) {
-            const isSourceActive = window.primaryActiveNodes.has(link.source.id || link.source);
-            const isTargetActive = window.primaryActiveNodes.has(link.target.id || link.target);
-            return (isSourceActive || isTargetActive) ? 3 : 0;
+            if (!isGraphThinking) return 0;
+            const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+            const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+            const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId);
+            if (isConnected) return 4;
+            return 0;
+        }
+
+        function getLinkParticleSpeed(link) {
+            const type = getLinkType(link);
+            const baseSpeed = (type === 'strong') ? 0.035 : (type === 'medium' ? 0.02 : 0.01);
+            return isGraphThinking ? baseSpeed * 1.8 : baseSpeed;
         }
 
         function getLinkParticleWidth(link) {
-            return 1.8;
+            const type = getLinkType(link);
+            const baseWidth = (type === 'strong') ? 5.5 : (type === 'medium' ? 3.5 : 1.8);
+            return isGraphThinking ? baseWidth * 1.4 : baseWidth;
         }
 
         function getLinkParticleColor(link) {
-            return '#00f5d4';
+            const type = getLinkType(link);
+            if (type === 'strong') return HIGHLIGHT_COLOR;
+            if (type === 'medium') return '#00b4d8';
+            return '#c77dff';
         }
 
+        let circleTexture = null;
         function getCircleTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 32;
-            canvas.height = 32;
-            const ctx = canvas.getContext('2d');
-            ctx.beginPath();
-            ctx.arc(16, 16, 14, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-            return canvas;
+            if (!circleTexture) {
+                const THREE = window.THREE_LEGACY;
+                if (!THREE) return null;
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                
+                ctx.beginPath();
+                ctx.arc(32, 32, 26, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.stroke();
+                
+                circleTexture = new THREE.CanvasTexture(canvas);
+            }
+            return circleTexture;
         }
 
         function zoomToNode(node) {
-            if (!Graph) return;
-            const duration = 1200;
+            if (!node || !Graph) return;
+            // Check if coordinates are valid numbers to prevent jumps to (0,0)
+            if (typeof node.x !== 'number' || typeof node.y !== 'number' || isNaN(node.x) || isNaN(node.y)) {
+                return;
+            }
+            if (is3D && (typeof node.z !== 'number' || isNaN(node.z))) {
+                return;
+            }
+            const duration = 1800;
             if (is3D) {
-                const distance = 80;
-                const distRatio = 1 + distance/Math.hypot(node.x, node.y, node.z);
-                Graph.cameraPosition(
-                    { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-                    node,
-                    duration
-                );
+                if (typeof Graph.cameraPosition === 'function') {
+                    const distance = 80;
+                    const camX = node.x + distance * 0.6;
+                    const camY = node.y + distance * 0.6;
+                    const camZ = node.z + distance * 0.6;
+                    Graph.cameraPosition(
+                        { x: camX, y: camY, z: camZ },
+                        { x: node.x, y: node.y, z: node.z },
+                        duration
+                    );
+                }
             } else {
-                Graph.centerAt(node.x, node.y, duration);
-                Graph.zoom(3.5, duration);
+                if (typeof Graph.centerAt === 'function') {
+                    Graph.centerAt(node.x, node.y, duration);
+                    Graph.zoom(2.2, duration);
+                }
             }
         }
 
         function handleNodeClick(node) {
             if (!node || !node.id) return;
-            openWikiModal(node.id);
+            try {
+                openWikiModal(node.id);
+            } catch (err) {
+                console.error("Errore openWikiModal:", err);
+            }
+            try {
+                zoomToNode(node);
+            } catch (err) {
+                console.error("Errore zoomToNode:", err);
+            }
         }
 
         // 3D Force Graph Initialization
         async function initGraph() {
             const container = document.getElementById('graph-container');
-            container.innerHTML = "";
+            if (Graph) {
+                try {
+                    Graph._destructor && Graph._destructor();
+                } catch(e) {}
+                container.innerHTML = "";
+                Graph = null;
+            }
+            
             showGraphError("Inizializzazione vista 3D...");
             
             try {
-                await ensure3DLoaded();
+                const loaded = await ensure3DLoaded();
+                if (!loaded) {
+                    throw new Error("Errore nel caricamento del motore 3D.");
+                }
+                
                 warningBox.style.display = 'none';
                 
                 if (typeof ForceGraph3D === 'undefined') {
@@ -1794,56 +1915,84 @@
                 }
                 
                 Graph = ForceGraph3D()(container)
+                    .width(container.clientWidth)
+                    .height(container.clientHeight)
                     .graphData(graphData)
-                    .nodeLabel(node => `<div style="background:rgba(10,12,16,0.9); padding:6px 12px; border:1px solid rgba(255,255,255,0.1); border-radius:6px; font-family:'Outfit'; font-weight:700; color:#fff;">${node.name}</div>`)
+                    .nodeLabel(node => {
+                        if (hideNodeLabels) return null;
+                        return node.label || '';
+                    })
                     .nodeColor(node => {
-                        if (window.primaryActiveNodes.has(node.id)) return '#00f5d4';
-                        if (window.secondaryActiveNodes.has(node.id)) return '#9d4edd';
-                        return getGroupColor(node.group);
+                        const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
+                        const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
+                        const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
+                        const isHovered = node === hoverNode;
+                        
+                        if (isHovered) return '#ffffff';
+                        if (hasActiveNodes) {
+                            if (isPrimary) return HIGHLIGHT_COLOR;
+                            if (isSecondary) return node.color || '#9d4edd';
+                            return 'rgba(157, 78, 221, 0.12)';
+                        }
+                        return node.color || '#9d4edd';
                     })
                     .nodeVal(node => {
-                        if (window.primaryActiveNodes.has(node.id)) return node.val * 2.5;
-                        return node.val;
+                        const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
+                        const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
+                        const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
+                        const isHovered = node === hoverNode;
+                        
+                        let baseRadius = node.radius || 4.5;
+                        if (isHovered) return baseRadius * 1.5;
+                        if (hasActiveNodes) {
+                            if (isPrimary) return baseRadius * 1.8;
+                            if (isSecondary) return baseRadius * 1.2;
+                            return baseRadius * 0.5;
+                        }
+                        return baseRadius;
                     })
-                    .nodeResolution(24)
-                    .linkWidth(getLinkWidth)
-                    .linkColor(getLinkColor)
-                    .linkDirectionalParticles(getLinkParticles)
-                    .linkDirectionalParticleWidth(getLinkParticleWidth)
-                    .linkDirectionalParticleColor(getLinkParticleColor)
-                    .linkDirectionalParticleSpeed(0.012)
-                    .backgroundColor('#000000')
-                    .onNodeClick(handleNodeClick);
+                    .nodeResolution(8)
+                    .linkColor(link => getLinkColor(link))
+                    .linkWidth(link => getLinkWidth(link))
+                    .linkDirectionalParticles(link => getLinkParticles(link))
+                    .linkDirectionalParticleSpeed(link => getLinkParticleSpeed(link))
+                    .linkDirectionalParticleWidth(link => getLinkParticleWidth(link))
+                    .linkDirectionalParticleColor(link => getLinkParticleColor(link))
+                    .cooldownTicks(50)
+                    .cooldownTime(4000)
+                    .d3VelocityDecay(0.35)
+                    .onNodeHover(node => {
+                        const prevHoverNode = hoverNode;
+                        hoverNode = node || null;
+                        document.body.style.cursor = node ? 'pointer' : null;
+                        if (prevHoverNode !== hoverNode) {
+                            Graph.nodeColor(Graph.nodeColor());
+                            Graph.nodeVal(Graph.nodeVal());
+                        }
+                    })
+                    .onNodeClick(node => handleNodeClick(node));
                 
-                // Dynamic labels based on depth/rotation
-                const imgTexture = new THREE.Texture(getCircleTexture());
-                imgTexture.needsUpdate = true;
+                if (typeof Graph.clickDistanceThreshold === 'function') {
+                    Graph.clickDistanceThreshold(8);
+                }
                 
-                Graph.nodeThreeObject(node => {
-                    const isPrimary = window.primaryActiveNodes.has(node.id);
-                    const isSecondary = window.secondaryActiveNodes.has(node.id);
-                    let colorStr = getGroupColor(node.group);
-                    if (isPrimary) colorStr = '#00f5d4';
-                    else if (isSecondary) colorStr = '#9d4edd';
-                    
-                    const mat = new THREE.SpriteMaterial({
-                        map: imgTexture,
-                        color: colorStr,
-                        transparent: true,
-                        opacity: (window.primaryActiveNodes.size > 0 && !isPrimary && !isSecondary) ? 0.25 : 0.85
-                    });
-                    
-                    const sprite = new THREE.Sprite(mat);
-                    const size = isPrimary ? 18 : (isSecondary ? 14 : 7 + Math.sqrt(node.val || 1) * 2.5);
-                    sprite.scale.set(size, size, 1);
-                    return sprite;
-                });
-                
-                setAutoRotateState(0.4);
+                // Rotazione camera in idle
+                setTimeout(() => {
+                    if (Graph && typeof Graph.controls === 'function') {
+                        const controls = Graph.controls();
+                        if (controls) {
+                            controls.enableRotate = true;
+                            controls.autoRotate = true;
+                            controls.autoRotateSpeed = isGraphThinking ? 5.0 : 0.4;
+                        }
+                    }
+                }, 100);
                 
             } catch (err) {
-                console.error(err);
-                showGraphError("WebGL non disponibile. Avvio fallback 2D...");
+                console.warn("Errore nell'inizializzazione del grafo 3D, fallback su 2D:", err);
+                is3D = false;
+                modeToggleBtn.innerText = "Switch to 3D";
+                warningBox.style.display = 'block';
                 initGraph2D();
             }
         }
@@ -1851,8 +2000,15 @@
         // 2D Force Graph Fallback
         function initGraph2D() {
             const container = document.getElementById('graph-container');
-            container.innerHTML = "";
-            warningBox.style.display = 'block';
+            if (Graph) {
+                try {
+                    Graph._destructor && Graph._destructor();
+                } catch(e) {}
+                container.innerHTML = "";
+                Graph = null;
+            }
+            
+            warningBox.style.display = isWebGLAvailable() ? 'none' : 'block';
             is3D = false;
             modeToggleBtn.innerText = "Switch to 3D";
             
@@ -1862,72 +2018,94 @@
             }
             
             Graph = ForceGraph()(container)
+                .width(container.clientWidth)
+                .height(container.clientHeight)
                 .graphData(graphData)
-                .nodeLabel(null)
-                .nodeColor(node => {
-                    if (window.primaryActiveNodes.has(node.id)) return '#00f5d4';
-                    if (window.secondaryActiveNodes.has(node.id)) return '#9d4edd';
-                    return getGroupColor(node.group);
-                })
-                .nodeVal(node => {
-                    if (window.primaryActiveNodes.has(node.id)) return node.val * 2.0;
-                    return node.val;
-                })
-                .linkWidth(getLinkWidth)
-                .linkColor(getLinkColor)
-                .linkDirectionalParticles(getLinkParticles)
-                .linkDirectionalParticleWidth(getLinkParticleWidth)
-                .linkDirectionalParticleColor(getLinkParticleColor)
-                .linkDirectionalParticleSpeed(0.012)
-                .backgroundColor('#000000')
-                .onNodeClick(handleNodeClick)
-                .onNodeHover(node => {
-                    container.style.cursor = node ? 'pointer' : null;
-                    hoverNode = node;
+                .nodeLabel(node => {
+                    if (hideNodeLabels) return null;
+                    return node.label || '';
                 })
                 .nodeCanvasObject((node, ctx, globalScale) => {
-                    const label = node.name;
-                    const fontSize = (window.primaryActiveNodes.has(node.id) || window.secondaryActiveNodes.has(node.id)) 
-                        ? 14 / globalScale 
-                        : 11 / globalScale;
-                        
-                    ctx.font = `${fontSize}px Outfit, sans-serif`;
-                    const textWidth = ctx.measureText(label).width;
-                    const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.4);
+                    const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
+                    const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
+                    const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
+                    const isHovered = node === hoverNode;
                     
-                    const isPrimary = window.primaryActiveNodes.has(node.id);
-                    const isSecondary = window.secondaryActiveNodes.has(node.id);
-                    let color = getGroupColor(node.group);
-                    if (isPrimary) color = '#00f5d4';
-                    else if (isSecondary) color = '#9d4edd';
+                    let baseColor = node.color || '#9d4edd';
+                    let radius = node.radius || 4.5;
+                    let opacity = 0.85;
                     
-                    // Draw node point
+                    if (isHovered) {
+                        baseColor = '#ffffff';
+                        radius *= 1.4;
+                        opacity = 1.0;
+                    } else if (hasActiveNodes) {
+                        if (isPrimary) {
+                            baseColor = HIGHLIGHT_COLOR;
+                            radius *= 1.8;
+                            opacity = 1.0;
+                        } else if (isSecondary) {
+                            radius *= 1.2;
+                            opacity = 0.8;
+                        } else {
+                            radius *= 0.5;
+                            opacity = 0.15; // Sfuma i nodi inattivi
+                        }
+                    }
+                    
+                    ctx.save();
+                    ctx.globalAlpha = opacity;
+                    
+                    // Neon glow per nodi attivi o hovered
+                    if (isHovered || isPrimary) {
+                        ctx.shadowColor = baseColor;
+                        ctx.shadowBlur = 15;
+                    } else if (isSecondary) {
+                        ctx.shadowColor = baseColor;
+                        ctx.shadowBlur = 8;
+                    }
+                    
+                    // Cerchio esterno
                     ctx.beginPath();
-                    const size = isPrimary ? 8 : (isSecondary ? 6.5 : 3 + Math.sqrt(node.val || 1) * 1.2);
-                    ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false);
-                    ctx.fillStyle = color;
-                    
-                    // Highlight pulse
-                    if (isPrimary) {
-                        ctx.shadowColor = '#00f5d4';
-                        ctx.shadowBlur = 10;
-                    }
+                    ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+                    ctx.fillStyle = baseColor;
                     ctx.fill();
-                    ctx.shadowBlur = 0; // Reset
                     
-                    // Draw text label on hover or if highlighted
-                    if (!hideNodeLabels || isPrimary || isSecondary || hoverNode === node) {
-                        ctx.fillStyle = 'rgba(7, 8, 11, 0.85)';
-                        ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] - size - 2, bckgDimensions[0], bckgDimensions[1]);
-                        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-                        ctx.strokeRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] - size - 2, bckgDimensions[0], bckgDimensions[1]);
-                        
+                    // Disegna l'etichetta del testo se lo zoom è abbastanza alto o se il nodo è attivo
+                    if (!hideNodeLabels && (globalScale > 1.2 || isPrimary || isHovered)) {
+                        const fontSize = Math.max(10 / globalScale, 6);
+                        ctx.font = `${isHovered || isPrimary ? 'bold' : 'normal'} ${fontSize}px 'ABC Repro', sans-serif`;
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
                         ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillStyle = (isPrimary || isSecondary) ? '#ffffff' : '#d8dee9';
-                        ctx.fillText(label, node.x, node.y - bckgDimensions[1] / 2 - size - 2);
+                        ctx.textBaseline = 'top';
+                        ctx.shadowBlur = 0; // Disabilita l'ombra per il testo
+                        ctx.fillText(node.label || '', node.x, node.y + radius + 4);
                     }
-                });
+                    
+                    ctx.restore();
+                })
+                .linkColor(link => getLinkColor(link))
+                .linkWidth(link => getLinkWidth(link))
+                .linkDirectionalParticles(link => getLinkParticles(link))
+                .linkDirectionalParticleSpeed(link => getLinkParticleSpeed(link))
+                .linkDirectionalParticleWidth(link => getLinkParticleWidth(link))
+                .linkDirectionalParticleColor(link => getLinkParticleColor(link))
+                .cooldownTicks(50)
+                .cooldownTime(4000)
+                .d3VelocityDecay(0.35)
+                .onNodeHover(node => {
+                    const prevHoverNode = hoverNode;
+                    hoverNode = node || null;
+                    document.body.style.cursor = node ? 'pointer' : null;
+                    if (prevHoverNode !== hoverNode && typeof Graph.refresh === 'function') {
+                        Graph.refresh();
+                    }
+                })
+                .onNodeClick(node => handleNodeClick(node));
+            
+            if (typeof Graph.clickDistanceThreshold === 'function') {
+                Graph.clickDistanceThreshold(8);
+            }
         }
 
         function setAutoRotateState(speed) {
@@ -1955,9 +2133,18 @@
             try {
                 const res = await fetch('/api/graph');
                 rawGraphData = await res.json();
+                
+                nodeIdToNodeMap.clear();
+                rawGraphData.nodes.forEach(node => {
+                    node.label = node.name || node.id.split('/').pop().replace('.md', '');
+                    node.isJournal = node.id.startsWith('journal/');
+                    node.color = getGroupColor(node.group || 1);
+                    node.radius = Math.max(Math.sqrt(node.val || 1) * 2.2, 4.5);
+                    nodeIdToNodeMap.set(node.id, node);
+                });
+                
                 updateFilteredData(false);
                 
-                // Init in 2D or 3D based on WebGL
                 if (isWebGLAvailable()) {
                     is3D = true;
                     modeToggleBtn.innerText = "Switch to 2D";
@@ -2065,7 +2252,7 @@
             }).map(n => n.id);
         }
 
-        function highlightNodes(nodeIds, isThinking = false) {
+        function highlightNodes(nodeIds, isThinking = false, shouldZoom = false) {
             window.primaryActiveNodes.clear();
             window.secondaryActiveNodes.clear();
             
@@ -2085,8 +2272,8 @@
                 });
             }
             
-            // Zoom to first primary node if found
-            if (nodeIds.length > 0 && graphData) {
+            // Zoom to first primary node only if shouldZoom is true and node has coordinates
+            if (shouldZoom && nodeIds.length > 0 && graphData) {
                 const node = graphData.nodes.find(n => n.id === nodeIds[0]);
                 if (node) zoomToNode(node);
             }
@@ -2230,10 +2417,15 @@
                 }
             }, 500);
 
-            // Highlight words in graph during thinking
+            // Highlight words in graph during thinking (don't zoom immediately to prevent camera jumps)
             const relevantNodes = findRelevantNodes(message);
             hideNodeLabels = true;
-            highlightNodes(relevantNodes, true);
+            isGraphThinking = true;
+            highlightNodes(relevantNodes, true, false);
+            if (Graph && is3D && typeof Graph.controls === 'function') {
+                const controls = Graph.controls();
+                if (controls) controls.autoRotateSpeed = 5.0; // Pensa veloce!
+            }
 
             // Upload files first if present
             if (hasFiles) {
@@ -2279,7 +2471,13 @@
                 }
 
                 chatHistory.push({ role: 'user', content: message });
-                const botMessageId = appendMessagePlaceholder('bot');
+                
+                // Reuse the same placeholder for streaming to avoid duplication
+                const botMessageId = loadingId;
+                clearInterval(emojiInterval);
+                const loadingTextDiv = document.querySelector(`#${botMessageId} .message-content`);
+                if (loadingTextDiv) loadingTextDiv.innerHTML = ''; // clear loading state
+                
                 let botMessageText = '';
                 
                 const reader = res.body.getReader();
@@ -2303,10 +2501,6 @@
                                     botMessageText += payload.text;
                                     updateMessageContent(botMessageId, botMessageText);
                                 } else if (payload.type === 'done') {
-                                    clearInterval(emojiInterval);
-                                    const loadingElement = document.getElementById(loadingId);
-                                    if (loadingElement) loadingElement.remove();
-                                    
                                     if (payload.conversation_id) {
                                         sessionStorage.setItem('conversation_id', payload.conversation_id);
                                     }
@@ -2317,12 +2511,15 @@
                                     }
                                     
                                     finalizeMessage(botMessageId, botMessageText, payload.emoji);
+                                    hideNodeLabels = false;
+                                    isGraphThinking = false;
                                     setAutoRotateState(0.4);
                                     
+                                    // Zoom only when final response is completed, prioritizing cited nodes
                                     if (payload.cited_nodes && payload.cited_nodes.length > 0) {
-                                        highlightNodes(payload.cited_nodes, true);
+                                        highlightNodes(payload.cited_nodes, false, true);
                                     } else {
-                                        highlightNodes(relevantNodes, true);
+                                        highlightNodes(relevantNodes, false, false);
                                     }
                                     
                                     // Trigger agenda reload in background in case AI created tasks
@@ -2337,6 +2534,10 @@
                 const loadingElement = document.getElementById(loadingId);
                 if (loadingElement) loadingElement.remove();
                 appendMessage('bot', `Errore di connessione col Secondo Cervello: ${err.message}`);
+                hideNodeLabels = false;
+                isGraphThinking = false;
+                setAutoRotateState(0.4);
+                highlightNodes([], false, false);
             } finally {
                 chatSubmit.disabled = false;
             }
@@ -2650,6 +2851,12 @@
                 // Update stats
                 document.getElementById('stats-queue').innerText = data.queue_count;
                 document.getElementById('sidebar-queue-count').innerText = data.queue_count;
+                
+                const queueBadge = document.getElementById('sidebar-queue-badge');
+                if (queueBadge) {
+                    queueBadge.innerText = data.queue_count;
+                    queueBadge.style.display = data.queue_count > 0 ? 'block' : 'none';
+                }
                 
                 const statusLabel = document.getElementById('stats-status');
                 const sidebarStatusText = document.getElementById('sidebar-status-text');

@@ -8,7 +8,7 @@ def test_read_root():
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Secondo Cervello - Pannello di controllo" in response.text
+    assert "Secondo Cervello - Dashboard Unificata" in response.text
 
 def test_get_status():
     response = client.get("/api/status")
