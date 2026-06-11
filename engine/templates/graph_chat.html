@@ -5,14 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secondo Cervello - Graph & Chat</title>
     
-    <!-- Force Graph libs (2D Canvas e 3D WebGL con fallback automatico e isolamento) -->
+    <!-- Force Graph libs (2D Canvas caricato subito, 3D caricato lazy al bisogno) -->
     <script src="/static/js/force-graph.min.js"></script>
-    <script src="/static/js/three.min.js"></script>
-    <script>
-        window.THREE_LEGACY = window.THREE;
-        window.THREE = undefined; // Isola per non inquinare l'inizializzazione di 3d-force-graph
-    </script>
-    <script src="/static/js/3d-force-graph.min.js"></script>
     
     <!-- Markdown to HTML basic parser -->
     <script src="/static/js/marked.min.js"></script>
@@ -1463,9 +1457,64 @@
             container.appendChild(errDiv);
         }
 
+        // Utility per caricamento script dinamico
+        function loadScript(src) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error(`Impossibile caricare lo script: ${src}`));
+                document.head.appendChild(script);
+            });
+        }
+
+        let loading3D = false;
+        let loaded3D = false;
+
+        async function ensure3DLoaded() {
+            if (loaded3D) return true;
+            if (loading3D) {
+                while (loading3D) {
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                return loaded3D;
+            }
+            
+            loading3D = true;
+            try {
+                toggleBtn.disabled = true;
+                toggleBtn.innerText = "Loading 3D Engine...";
+                
+                await loadScript("/static/js/three.min.js");
+                window.THREE_LEGACY = window.THREE;
+                window.THREE = undefined; // Isola per non inquinare l'inizializzazione di 3d-force-graph
+                
+                await loadScript("/static/js/3d-force-graph.min.js");
+                loaded3D = true;
+                return true;
+            } catch (err) {
+                console.error("Errore nel caricamento delle librerie 3D:", err);
+                alert("Errore nel caricamento del motore 3D. Fallback al 2D.");
+                return false;
+            } finally {
+                loading3D = false;
+                toggleBtn.disabled = false;
+                toggleBtn.innerText = is3D ? "Switch to 2D" : "Switch to 3D";
+            }
+        }
+
         // Listener del pulsante per alternare 2D/3D
-        toggleBtn.addEventListener('click', () => {
-            is3D = !is3D;
+        toggleBtn.addEventListener('click', async () => {
+            const nextMode3D = !is3D;
+            if (nextMode3D) {
+                const loaded = await ensure3DLoaded();
+                if (!loaded) {
+                    is3D = false;
+                    toggleBtn.innerText = "Switch to 3D";
+                    return;
+                }
+            }
+            is3D = nextMode3D;
             toggleBtn.innerText = is3D ? "Switch to 2D" : "Switch to 3D";
             initGraph();
         });
@@ -2008,6 +2057,9 @@
             const temp = document.createElement('div');
             temp.innerHTML = html;
             
+            const totalTextLength = temp.textContent.length;
+            const isLongResponse = totalTextLength >= 500;
+            
             element.innerHTML = '';
             let totalDelay = 0;
             
@@ -2020,13 +2072,29 @@
                         const textNode = document.createTextNode('');
                         targetNode.appendChild(textNode);
                         
-                        for (let i = 0; i < text.length; i++) {
-                            setTimeout(() => {
-                                textNode.textContent += text[i];
-                                const chatMessages = document.getElementById('chat-messages');
-                                chatMessages.scrollTop = chatMessages.scrollHeight;
-                            }, totalDelay);
-                            totalDelay += speed;
+                        if (isLongResponse) {
+                            // Scrittura per parole/chunk per risposte lunghe
+                            const words = text.split(/(\s+)/); // Preserva gli spazi bianchi come separatori
+                            for (let i = 0; i < words.length; i++) {
+                                const word = words[i];
+                                setTimeout(() => {
+                                    textNode.textContent += word;
+                                    const chatMessages = document.getElementById('chat-messages');
+                                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                                }, totalDelay);
+                                totalDelay += word.trim() ? 15 : 2;
+                            }
+                        } else {
+                            // Scrittura veloce per singolo carattere per risposte corte
+                            const charSpeed = Math.min(speed, 2);
+                            for (let i = 0; i < text.length; i++) {
+                                setTimeout(() => {
+                                    textNode.textContent += text[i];
+                                    const chatMessages = document.getElementById('chat-messages');
+                                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                                }, totalDelay);
+                                totalDelay += charSpeed;
+                            }
                         }
                     } else if (child.nodeType === Node.ELEMENT_NODE) {
                         const newElement = document.createElement(child.tagName);

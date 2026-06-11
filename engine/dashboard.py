@@ -17,7 +17,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from engine.tools.vault_tools import get_vault_path, list_unprocessed_raw, search_wiki
 from engine.utils.markdown import parse_markdown
-from engine.query_agent import query_agent_answer
+from engine.query_agent import query_agent_answer, get_second_brain_statistics
 from engine.watcher import watch_vault_changes
 from engine.tools.mail_idle import start_imap_idle_listeners
 
@@ -155,6 +155,15 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Carica la cache del grafo da disco all'avvio
+    load_graph_cache_from_disk()
+    
+    # Avvia la pre-generazione asincrona del grafo in background
+    asyncio.create_task(asyncio.to_thread(build_graph_data, force_update=True))
+    
+    # Avvia la pre-generazione asincrona delle statistiche in background
+    asyncio.create_task(asyncio.to_thread(get_second_brain_statistics))
+    
     # Avvia lo scheduler in background
     scheduler_task = asyncio.create_task(run_scheduler_loop())
     
@@ -359,10 +368,27 @@ def set_schedule_time(time_str: str) -> bool:
 _graph_cache = None
 _graph_cache_time = 0
 
-def build_graph_data():
+def load_graph_cache_from_disk():
+    global _graph_cache, _graph_cache_time
+    import json
+    try:
+        vault_path = get_vault_path()
+        cache_path = os.path.join(vault_path, "vault", "graph_cache.json")
+        if os.path.exists(cache_path):
+            with open(cache_path, "r", encoding="utf-8") as f:
+                _graph_cache = json.load(f)
+            _graph_cache_time = os.path.getmtime(cache_path)
+            print(f"[GRAPH] Cache caricata da disco ({len(_graph_cache.get('nodes', []))} nodi).", flush=True)
+        else:
+            print("[GRAPH] Cache su disco non trovata.", flush=True)
+    except Exception as e:
+        print(f"[GRAPH] Errore nel caricamento della cache da disco: {e}", flush=True)
+
+def build_graph_data(force_update=False):
     global _graph_cache, _graph_cache_time
     import time
-    if _graph_cache and (time.time() - _graph_cache_time < 3600):
+    import json
+    if not force_update and _graph_cache and (time.time() - _graph_cache_time < 3600):
         return _graph_cache
         
     vault_path = get_vault_path()
@@ -375,6 +401,8 @@ def build_graph_data():
     short_to_rel_map = {}
     rel_path_set = set()
     file_metadata = {}
+    raw_edges = []
+    node_set = set()
     
     for folder in folders:
         abs_folder = os.path.join(vault_path, folder)
@@ -384,6 +412,8 @@ def build_graph_data():
                 if file.endswith(".md"):
                     file_path = os.path.join(root, file)
                     rel_path = os.path.relpath(file_path, vault_path).replace(".md", "")
+                    node_id = rel_path
+                    node_set.add(node_id)
                     rel_path_set.add(rel_path)
                     
                     basename = os.path.splitext(file)[0]
@@ -408,39 +438,36 @@ def build_graph_data():
                         "name": basename,
                         "group": group
                     }
-
-    edges = []
-    node_set = set()
-    
-    for folder in folders:
-        abs_folder = os.path.join(vault_path, folder)
-        if not os.path.exists(abs_folder): continue
-        for root, _, files in os.walk(abs_folder):
-            for file in files:
-                if file.endswith(".md"):
-                    file_path = os.path.join(root, file)
-                    node_id = os.path.relpath(file_path, vault_path).replace(".md", "")
                     
-                    node_set.add(node_id)
+                    # Leggiamo il file per estrarre i link
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
                             content = f.read()
                             matches = wiki_re.findall(content)
                             for match in matches:
                                 target = match.split("|")[0].strip()
-                                
-                                # Risoluzione dei link corti
-                                resolved_target = target
-                                if "/" not in target and "\\" not in target:
-                                    resolved_target = short_to_rel_map.get(target.lower(), target)
-                                    
-                                edges.append({"source": node_id, "target": resolved_target})
-                                node_set.add(resolved_target)
+                                raw_edges.append((node_id, target))
                     except:
                         pass
-                        
+
+    # Risolviamo i link corti ed edges
+    edges = []
+    for source, target in raw_edges:
+        resolved_target = target
+        if "/" not in target and "\\" not in target:
+            resolved_target = short_to_rel_map.get(target.lower(), target)
+        edges.append({"source": source, "target": resolved_target})
+        node_set.add(resolved_target)
+        
+    # Calcolo dei degree efficiente O(E)
+    from collections import Counter
+    degree_counter = Counter()
+    for e in edges:
+        degree_counter[e["source"]] += 1
+        degree_counter[e["target"]] += 1
+        
     for n in node_set:
-        degree = sum(1 for e in edges if e["source"] == n or e["target"] == n)
+        degree = degree_counter[n]
         meta = file_metadata.get(n, {
             "name": os.path.basename(n),
             "group": 1
@@ -457,6 +484,17 @@ def build_graph_data():
         
     _graph_cache = {"nodes": nodes, "links": links}
     _graph_cache_time = time.time()
+    
+    # Salva su disco
+    try:
+        cache_path = os.path.join(vault_path, "vault", "graph_cache.json")
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(_graph_cache, f, ensure_ascii=False)
+        print(f"[GRAPH] Cache salvata su disco: {cache_path}", flush=True)
+    except Exception as e:
+        print(f"[GRAPH] Errore nel salvataggio della cache su disco: {e}", flush=True)
+        
     return _graph_cache
 
 
@@ -583,47 +621,19 @@ Questa pagina è stata creata come segnaposto dal grafo del Secondo Cervello.
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-async def choose_emoji_via_llm(query: str, answer: str) -> str:
-    try:
-        from engine.utils.llm_fallback import resolve_gemini_key
-        from google.antigravity import Agent, LocalAgentConfig
-        gemini_key = resolve_gemini_key()
-        if not gemini_key or gemini_key == "dummy-key":
-            raise ValueError("No valid key")
-        
-        prompt = (
-            f"Analizza questa richiesta e scegli una singola emoji che rappresenti il tipo di pensiero o l'argomento (es. 🧠 per concetti/AI, 👥 per persone/contatti, 📅 per riunioni/eventi, 📂 per documenti/sorgenti, 📝 per note/diario, 💻 per programmazione/tecnologia, ecc.).\n"
-            f"Richiesta: {query}\n"
-            f"Risposta: {answer[:300]}\n"
-            f"Rispondi SOLTANTO con una singola emoji. Nessun altro carattere."
-        )
-        
-        config = LocalAgentConfig(
-            model="gemini-3.5-flash",
-            system_instructions="Sei un classificatore di emoji rapido. Rispondi esclusivamente con un singolo carattere emoji.",
-            temperature=0.0
-        )
-        
-        async with Agent(config) as agent:
-            response = await asyncio.wait_for(agent.chat(prompt), timeout=1.8)
-            emoji_text = (await response.text()).strip()
-            for char in emoji_text:
-                if ord(char) > 0x1f000 or char in "🧠👥📅📂📝💻🤔💭💡🤖🔧🎨📈":
-                    return char
-            return emoji_text[0] if emoji_text else "🧠"
-    except Exception:
-        text = (query + " " + answer).lower()
-        if any(k in text for k in ["verbale", "meeting", "riunione", "incontro", "call", "discussione", "meetings"]):
-            return "📅"
-        elif any(k in text for k in ["contatto", "crm", "persona", "people", "cliente", "collaboratore", "relazione", "profilo"]):
-            return "👥"
-        elif any(k in text for k in ["diario", "journal", "oggi", "ieri", "settimana", "riflessione", "personale"]):
-            return "📝"
-        elif any(k in text for k in ["sorgente", "source", "articolo", "web", "link", "url", "drive", "file", "documento", "pdf"]):
-            return "📂"
-        elif any(k in text for k in ["programma", "codice", "sviluppo", "python", "javascript", "html", "css", "bug", "errore"]):
-            return "💻"
-        return "🧠"
+def choose_emoji(query: str, answer: str) -> str:
+    text = (query + " " + answer).lower()
+    if any(k in text for k in ["verbale", "meeting", "riunione", "incontro", "call", "discussione", "meetings"]):
+        return "📅"
+    elif any(k in text for k in ["contatto", "crm", "persona", "people", "cliente", "collaboratore", "relazione", "profilo"]):
+        return "👥"
+    elif any(k in text for k in ["diario", "journal", "oggi", "ieri", "settimana", "riflessione", "personale"]):
+        return "📝"
+    elif any(k in text for k in ["sorgente", "source", "articolo", "web", "link", "url", "drive", "file", "documento", "pdf"]):
+        return "📂"
+    elif any(k in text for k in ["programma", "codice", "sviluppo", "python", "javascript", "html", "css", "bug", "errore"]):
+        return "💻"
+    return "🧠"
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
@@ -631,7 +641,7 @@ async def chat_endpoint(req: ChatRequest):
         ans = await query_agent_answer(req.message, history=req.history)
         wiki_re = re.compile(r'\[\[(.*?)\]\]')
         cited = [m.split("|")[0].strip() for m in wiki_re.findall(ans)]
-        emoji = await choose_emoji_via_llm(req.message, ans)
+        emoji = choose_emoji(req.message, ans)
         return {"answer": ans, "cited_nodes": cited, "emoji": emoji}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})

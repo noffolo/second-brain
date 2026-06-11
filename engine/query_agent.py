@@ -108,95 +108,140 @@ def expand_with_graph_neighbors(results: list[dict], vault_path: str, max_neighb
                         
     return expanded
 
-def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
+async def run_git_grep(kw: str, vault_path: str, folders: list[str]) -> set[str]:
+    if not folders:
+        return set()
+    cmd = ["git", "grep", "--no-index", "-I", "-i", "-l", "-F", "-e", kw, "--"] + folders
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=vault_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            return {line.strip() for line in stdout.decode("utf-8", errors="ignore").splitlines() if line.strip()}
+    except Exception as e:
+        print(f"[git-grep] Errore per {kw}: {e}")
+    return set()
+
+async def run_vector_search(query: str, limit: int):
+    try:
+        from engine.utils.vector_db import get_vector_db
+        db = get_vector_db()
+        return await asyncio.to_thread(db.search_similar, query, limit)
+    except Exception as e:
+        print(f"[Vector Search] Errore: {e}")
+        return []
+
+async def run_keyword_search(kw: str):
+    try:
+        return await asyncio.to_thread(search_wiki, kw)
+    except Exception as e:
+        print(f"[Keyword Search] Errore per {kw}: {e}")
+        return []
+
+async def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
     """
     Esegue una ricerca ibrida unendo i risultati semantici del Vector DB
     con la ricerca testuale classica (search_wiki) basata su parole chiave.
     Espande poi i risultati includendo le note adiacenti nel grafo (Graph RAG).
     """
-    results = []
-    seen_paths = set()
-    
-    # 0. Ricerca per intersezione di parole chiave (AND)
     keywords = extract_keywords(query)
-    if len(keywords) > 1:
-        try:
-            import subprocess
-            vault = get_vault_path()
-            file_sets = []
-            for kw in keywords[:4]:
-                cmd = ["git", "grep", "--no-index", "-I", "-i", "-l", "-F", "-e", kw, "--", "*.md"]
-                res = subprocess.run(cmd, cwd=vault, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
-                if res.returncode == 0:
-                    files = {line.strip() for line in res.stdout.splitlines() if line.strip()}
-                    file_sets.append(files)
-                else:
-                    file_sets.append(set())
-            
-            if file_sets:
-                intersected = set.intersection(*file_sets)
-                allowed_intersected = []
-                for rel_filepath in intersected:
-                    allowed = False
-                    for sdir in ["wiki", "CRM", "journal", "Meetings", "Microthemes"]:
-                        if rel_filepath.startswith(sdir + "/") or rel_filepath.startswith(sdir + "\\"):
-                            allowed = True
-                            break
-                    if allowed:
-                        allowed_intersected.append(rel_filepath)
-                
-                # Inserisci i file che contengono tutte le parole chiave
-                for rel_filepath in allowed_intersected[:limit]:
-                    if rel_filepath not in seen_paths:
-                        seen_paths.add(rel_filepath)
-                        abs_filepath = os.path.join(vault, rel_filepath)
-                        if os.path.exists(abs_filepath):
-                            try:
-                                with open(abs_filepath, "r", encoding="utf-8") as f:
-                                    content = f.read()
-                                if content.startswith("---"):
-                                    parts = content.split("---", 2)
-                                    body = parts[2] if len(parts) >= 3 else content
-                                else:
-                                    body = content
-                                body_clean = body.strip()
-                                title = os.path.splitext(os.path.basename(rel_filepath))[0]
-                                results.append({
-                                    "path": rel_filepath,
-                                    "title": title,
-                                    "snippet": body_clean[:400] + "..." if len(body_clean) > 400 else body_clean
-                                })
-                            except Exception:
-                                pass
-        except Exception as e:
-            print(f"[Hybrid Search] Errore ricerca AND: {e}")
+    vault = get_vault_path()
+    existing_folders = [d for d in ["wiki", "CRM", "journal", "Meetings", "Microthemes"] if os.path.exists(os.path.join(vault, d))]
     
+    tasks = []
+    
+    # 0. Ricerca per intersezione di parole chiave (AND) via git grep concorrente
+    and_task = None
+    if len(keywords) > 1:
+        async def run_and_search():
+            grep_tasks = [run_git_grep(kw, vault, existing_folders) for kw in keywords[:3]]
+            file_sets = await asyncio.gather(*grep_tasks)
+            if file_sets:
+                return set.intersection(*file_sets)
+            return set()
+        and_task = asyncio.create_task(run_and_search())
+        tasks.append(and_task)
+        
     # 1. Ricerca Vettoriale Semantica
+    vector_task = asyncio.create_task(run_vector_search(query, limit))
+    tasks.append(vector_task)
+    
+    # 2. Ricerca Testuale Classica
+    keyword_tasks = [asyncio.create_task(run_keyword_search(kw)) for kw in keywords[:3]]
+    tasks.extend(keyword_tasks)
+    
+    # Esegue tutte le ricerche in parallelo
+    await asyncio.gather(*tasks, return_exceptions=True)
+    
+    seen_paths = set()
+    results = []
+    
+    # Raccoglie i risultati di AND search (priorità massima)
+    if and_task:
+        try:
+            intersected = and_task.result()
+            for rel_filepath in intersected:
+                rel_filepath = rel_filepath.replace("\\", "/")
+                if rel_filepath not in seen_paths:
+                    seen_paths.add(rel_filepath)
+                    abs_filepath = os.path.join(vault, rel_filepath)
+                    if os.path.exists(abs_filepath):
+                        try:
+                            with open(abs_filepath, "r", encoding="utf-8") as f:
+                                content = f.read()
+                            if content.startswith("---"):
+                                parts = content.split("---", 2)
+                                body = parts[2] if len(parts) >= 3 else content
+                            else:
+                                body = content
+                            body_clean = body.strip()
+                            title = os.path.splitext(os.path.basename(rel_filepath))[0]
+                            results.append({
+                                "path": rel_filepath,
+                                "title": title,
+                                "snippet": body_clean[:400] + "..." if len(body_clean) > 400 else body_clean
+                            })
+                        except Exception:
+                            pass
+                        if len(results) >= limit:
+                            break
+        except Exception as e:
+            print(f"[Hybrid Search] Errore recupero AND: {e}")
+            
+    # Raccoglie i risultati di ricerca vettoriale
     try:
-        from engine.utils.vector_db import get_vector_db
-        db = get_vector_db()
-        vec_results = db.search_similar(query, limit=limit)
+        vec_results = vector_task.result()
         for r in vec_results:
             if r.get('distance', 0) > 1.15:
                 continue
-            if r['path'] not in seen_paths:
-                seen_paths.add(r['path'])
+            path_clean = r['path'].replace("\\", "/")
+            if path_clean not in seen_paths:
+                seen_paths.add(path_clean)
                 results.append({
-                    "path": r['path'],
+                    "path": path_clean,
                     "title": r['title'],
                     "snippet": r['snippet']
                 })
+            if len(results) >= limit:
+                break
     except Exception as e:
-        print(f"[Hybrid Search] Errore ricerca vettoriale: {e}")
+        print(f"[Hybrid Search] Errore recupero vettoriale: {e}")
         
-    # 2. Ricerca Testuale Classica per Parole Chiave
-    keywords = extract_keywords(query)
-    try:
-        for kw in keywords[:3]:  # Primi 3 stem più significativi
-            kw_results = search_wiki(kw)
+    # Raccoglie i risultati keyword
+    for kt in keyword_tasks:
+        if len(results) >= limit:
+            break
+        try:
+            kw_results = kt.result()
+            kw = keywords[keyword_tasks.index(kt)]
             for r in kw_results:
-                if r['path'] not in seen_paths:
-                    filepath = os.path.join(get_vault_path(), r['path'])
+                path_clean = r['path'].replace("\\", "/")
+                if path_clean not in seen_paths:
+                    filepath = os.path.join(vault, path_clean)
                     snippet = r.get('snippet', '')
                     if os.path.exists(filepath):
                         try:
@@ -207,64 +252,58 @@ def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
                         except Exception:
                             pass
                             
-                    # Filtro anti-rumore per query multi-parola
-                    is_relevant = True
-                    if len(keywords) >= 2:
-                        capitalized_words = {w.strip("’'").lower() for w in query.split() if w and w[0].isupper()}
-                        # Escludi la prima parola se la prima parola è l'unica maiuscola per evitare falsi positivi da inizio frase
-                        query_words = query.split()
-                        if query_words and query_words[0][0].isupper() and len(capitalized_words) > 1:
-                            capitalized_words.discard(query_words[0].strip("’'").lower())
-                        # Rimuovi anche le stopwords note (es. FF3300) dai nomi propri per sicurezza
-                        capitalized_words.discard("ff3300")
-                        
-                        in_title = kw.lower() in r['title'].lower()
-                        is_proper_noun = kw.lower() in capitalized_words
-                        
-                        if not in_title and not is_proper_noun:
-                            # Se ci sono nomi propri nella query, richiedi che la nota ne contenga almeno uno
-                            if capitalized_words:
-                                body_lower = snippet.lower()
-                                title_lower = r['title'].lower()
-                                has_proper_match = any(pw in body_lower or pw in title_lower for pw in capitalized_words)
-                                if not has_proper_match:
-                                    is_relevant = False
-                            else:
-                                # Altrimenti, richiedi un altro keyword significativo
-                                other_kws = [k.lower() for k in keywords if k != kw and len(k) >= 4]
-                                if not other_kws:
-                                    other_kws = [k.lower() for k in keywords if k != kw]
-                                body_lower = snippet.lower()
-                                title_lower = r['title'].lower()
-                                has_other_match = any(okw in body_lower or okw in title_lower for okw in other_kws)
-                                if not has_other_match:
-                                    is_relevant = False
-                                
-                    if not is_relevant:
-                        continue
-                        
-                    seen_paths.add(r['path'])
-                    results.append({
-                        "path": r['path'],
-                        "title": r['title'],
-                        "snippet": snippet
-                    })
-                if len(results) >= limit:
-                    break
-            if len(results) >= limit:
-                break
-    except Exception as e:
-        print(f"[Hybrid Search] Errore ricerca keyword: {e}")
-        
+                        # Filtro anti-rumore per query multi-parola
+                        is_relevant = True
+                        if len(keywords) >= 2:
+                            capitalized_words = {w.strip("’'").lower() for w in query.split() if w and w[0].isupper()}
+                            query_words = query.split()
+                            if query_words and query_words[0][0].isupper() and len(capitalized_words) > 1:
+                                capitalized_words.discard(query_words[0].strip("’'").lower())
+                            capitalized_words.discard("ff3300")
+                            
+                            in_title = kw.lower() in r['title'].lower()
+                            is_proper_noun = kw.lower() in capitalized_words
+                            
+                            if not in_title and not is_proper_noun:
+                                if capitalized_words:
+                                    body_lower = snippet.lower()
+                                    title_lower = r['title'].lower()
+                                    has_proper_match = any(pw in body_lower or pw in title_lower for pw in capitalized_words)
+                                    if not has_proper_match:
+                                        is_relevant = False
+                                else:
+                                    other_kws = [k.lower() for k in keywords if k != kw and len(k) >= 4]
+                                    if not other_kws:
+                                        other_kws = [k.lower() for k in keywords if k != kw]
+                                    body_lower = snippet.lower()
+                                    title_lower = r['title'].lower()
+                                    has_other_match = any(okw in body_lower or okw in title_lower for okw in other_kws)
+                                    if not has_other_match:
+                                        is_relevant = False
+                                    
+                        if not is_relevant:
+                            continue
+                            
+                        seen_paths.add(path_clean)
+                        results.append({
+                            "path": path_clean,
+                            "title": r['title'],
+                            "snippet": snippet
+                        })
+                    if len(results) >= limit:
+                        break
+        except Exception as e:
+            print(f"[Hybrid Search] Errore recupero keyword per {kw}: {e}")
+            
     # 3. Espansione dei vicini del grafo (Graph RAG)
     try:
-        results = expand_with_graph_neighbors(results, get_vault_path(), max_neighbors=5)
+        results = expand_with_graph_neighbors(results, vault, max_neighbors=5)
     except Exception as e:
         print(f"[Graph RAG] Errore espansione vicini: {e}")
         
     return results[:limit]
 
-def search_vault(query: str) -> str:
+async def search_vault(query: str) -> str:
     """
     Cerca nel vault le note più pertinenti alla query utilizzando un approccio ibrido
     (ricerca semantica vettoriale combinata con ricerca testuale su parole chiave).
@@ -272,7 +311,7 @@ def search_vault(query: str) -> str:
     Ritorna i frammenti di testo più rilevanti estratti dai documenti.
     """
     try:
-        results = hybrid_search_vault_func(query, limit=10)
+        results = await hybrid_search_vault_func(query, limit=10)
         if not results:
             return "Nessun risultato trovato nel vault."
         out = []
@@ -738,7 +777,7 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig, his
         # 2. RAG locale: cerca nel vault ed estrae il contesto tramite ricerca ibrida
         search_results = []
         try:
-            search_results = await asyncio.to_thread(hybrid_search_vault_func, question, 15)
+            search_results = await hybrid_search_vault_func(question, 15)
         except Exception as e:
             print(f"Errore query ricerca ibrida: {e}")
             

@@ -101,6 +101,49 @@ def save_rate_limited_model(model: str, duration_seconds: int = 1800):
     except Exception as e:
         print(f"[Circuit Breaker] Errore di scrittura file limitazioni: {e}")
 
+def is_key_rate_limited(api_key: str) -> bool:
+    import time
+    if not os.path.exists(RATE_LIMITS_FILE):
+        return False
+    try:
+        with open(RATE_LIMITS_FILE, "r") as f:
+            data = json.load(f)
+        now = time.time()
+        key_id = f"key_{api_key[:12]}"
+        expiry = data.get(key_id)
+        if expiry and now < expiry:
+            return True
+    except Exception:
+        pass
+    return False
+
+def save_rate_limited_key(api_key: str, duration_seconds: int = 300):
+    import time
+    data = {}
+    if os.path.exists(RATE_LIMITS_FILE):
+        try:
+            with open(RATE_LIMITS_FILE, "r") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+    
+    now = time.time()
+    key_id = f"key_{api_key[:12]}"
+    data[key_id] = now + duration_seconds
+    
+    # Pulisci record scaduti
+    clean_data = {}
+    for k, expiry in data.items():
+        if now < expiry:
+            clean_data[k] = expiry
+            
+    try:
+        with open(RATE_LIMITS_FILE, "w") as f:
+            json.dump(clean_data, f)
+        print(f"[Circuit Breaker] Chiave {api_key[:10]}... registrata come limitata per {duration_seconds}s.", flush=True)
+    except Exception as e:
+        print(f"[Circuit Breaker] Errore di scrittura file limitazioni: {e}", flush=True)
+
 async def call_openai_compatible_api(url: str, api_key: str, model: str, system_instructions: str, prompt: str, timeout: int = 25) -> str:
     """
     Effettua una chiamata HTTP asincrona (tramite thread pool) a un endpoint compatibile con OpenAI.
@@ -160,7 +203,7 @@ async def call_openai_compatible_api(url: str, api_key: str, model: str, system_
             else:
                 raise RuntimeError(f"{e}")
 
-async def call_native_gemini_api(model: str, api_key: str, system_instructions: str, prompt: str) -> str:
+async def call_native_gemini_api(model: str, api_key: str, system_instructions: str, prompt: str, timeout: int = 25) -> str:
     """
     Invia una richiesta HTTP POST diretta alle API REST di Google Gemini (senza passare per l'SDK).
     Questo evita conflitti di autorizzazioni degli strumenti (tool declarations) e fornisce codici 429 immediati.
@@ -190,7 +233,7 @@ async def call_native_gemini_api(model: str, api_key: str, system_instructions: 
         payload["generationConfig"] = {
             "responseMimeType": "application/json"
         }
-
+ 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -201,7 +244,7 @@ async def call_native_gemini_api(model: str, api_key: str, system_instructions: 
     for attempt in range(max_retries + 1):
         try:
             def do_request():
-                with urllib.request.urlopen(req, context=ssl_context, timeout=25) as response:
+                with urllib.request.urlopen(req, context=ssl_context, timeout=timeout) as response:
                     return response.read().decode("utf-8")
                     
             resp_body = await loop.run_in_executor(None, do_request)
@@ -303,6 +346,10 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
             errors.append(f"Gemini Principale ({gemini_config.model}): Saltato (in quota-limit).")
         else:
             for current_key in keys:
+                if is_key_rate_limited(current_key):
+                    print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... (in blacklist per 429).")
+                    errors.append(f"Chiave {current_key[:10]}...: Saltata (in blacklist per 429).")
+                    continue
                 os.environ["GEMINI_API_KEY"] = current_key
                 try:
                     print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via API REST nativa usando chiave {current_key[:10]}...")
@@ -310,7 +357,8 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                         model=gemini_config.model,
                         api_key=current_key,
                         system_instructions=gemini_config.system_instructions,
-                        prompt=prompt
+                        prompt=prompt,
+                        timeout=12
                     )
                     if resp_text and resp_text.strip() != "":
                         return resp_text
@@ -320,13 +368,14 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                     err_str = str(e).lower()
                     is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
                     if is_rate_limit:
-                        print(f"Rilevato limite di frequenza/quota (429) per {gemini_config.model} con chiave {current_key[:10]}. Tento chiave successiva...")
+                        print(f"Rilevato limite di quota/frequenza (429) per {gemini_config.model} con chiave {current_key[:10]}. Inserisco in blacklist per 5 minuti...")
+                        save_rate_limited_key(current_key)
                     else:
                         err_msg = str(e)
                         print(f"Gemini API ({gemini_config.model}) fallita con chiave {current_key[:10]} ({err_msg[:80]}...). Tento chiave successiva...")
             
-            if keys:
-                print(f"Tutte le chiavi hanno fallito per {gemini_config.model}. Attivo il circuit breaker per questo modello.")
+            if keys and all(is_key_rate_limited(k) for k in keys):
+                print(f"Tutte le chiavi hanno fallito/sono in rate limit per {gemini_config.model}. Attivo il circuit breaker per questo modello.")
                 save_rate_limited_model(gemini_config.model)
                         
         # 1b. Tentativo con modelli Gemini di fallback in cascata (gemini-2.5-flash, gemini-3.1-flash-lite, gemini-2.0-flash)
@@ -340,6 +389,10 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                 continue
             
             for current_key in keys:
+                if is_key_rate_limited(current_key):
+                    print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... per fallback {fallback_model} (in blacklist per 429).")
+                    errors.append(f"Chiave {current_key[:10]}... (fallback): Saltata (in blacklist per 429).")
+                    continue
                 os.environ["GEMINI_API_KEY"] = current_key
                 try:
                     print(f"Tentativo di elaborazione con Gemini di Fallback ({fallback_model}) via API REST nativa usando chiave {current_key[:10]}...")
@@ -347,7 +400,8 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                         model=fallback_model,
                         api_key=current_key,
                         system_instructions=gemini_config.system_instructions,
-                        prompt=prompt
+                        prompt=prompt,
+                        timeout=25
                     )
                     if resp_text and resp_text.strip() != "":
                         return resp_text
@@ -357,12 +411,13 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                     err_str2 = str(e2).lower()
                     is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
                     if is_rate_limit2:
-                        print(f"Rilevato limite di frequenza/quota (429) per fallback {fallback_model} con chiave {current_key[:10]}. Tento chiave successiva...")
+                        print(f"Rilevato limite di quota/frequenza (429) per fallback {fallback_model} con chiave {current_key[:10]}. Inserisco in blacklist per 5 minuti...")
+                        save_rate_limited_key(current_key)
                     else:
                         print(f"Gemini fallback ({fallback_model}) fallito con chiave {current_key[:10]}: {e2}. Tento chiave successiva...")
             
-            if keys:
-                print(f"Tutte le chiavi hanno fallito per {fallback_model}. Attivo il circuit breaker per questo modello.")
+            if keys and all(is_key_rate_limited(k) for k in keys):
+                print(f"Tutte le chiavi hanno fallito/sono in rate limit per {fallback_model}. Attivo il circuit breaker per questo modello.")
                 save_rate_limited_model(fallback_model)
     else:
         errors.append("Gemini saltato: chiavi non valide o vuote in GEMINI_API_KEY e Vertex disabilitato.")
