@@ -20,7 +20,7 @@ def get_agent_instructions(agent_name: str) -> str:
         return ""
     with open(agents_md, "r", encoding="utf-8") as f:
         content = f.read()
-    pattern = rf"##\s+{agent_name}\s*\n(.*?)(?=\n##(?![#])|$)"
+    pattern = rf"##\s+{re.escape(agent_name)}\s*\n(.*?)(?=\n##(?![#])|$)"
     match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
@@ -79,8 +79,9 @@ async def run_reflection():
     vault_path = get_vault_path()
     settings = load_settings(vault_path)
     model = settings.get("models", {}).get("reflect_agent", "gemini-3.5-flash")
-    
-    instructions = get_agent_instructions("Reflect Agent")
+    identity_inst = get_agent_instructions("Identity (Linee Guida Generali)")
+    specific_inst = get_agent_instructions("Reflect Agent")
+    instructions = f"{identity_inst}\n\n---\n\n{specific_inst}"
     
     # Get inputs
     journals = get_recent_files(os.path.join(vault_path, "journal"), max_files=5, max_days=7)

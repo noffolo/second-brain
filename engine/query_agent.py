@@ -590,7 +590,7 @@ def get_agent_instructions(agent_name: str) -> str:
         return ""
     with open(agents_md, "r", encoding="utf-8") as f:
         content = f.read()
-    pattern = rf"##\s+{agent_name}\s*\n(.*?)(?=\n##(?![#])|$)"
+    pattern = rf"##\s+{re.escape(agent_name)}\s*\n(.*?)(?=\n##(?![#])|$)"
     match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
@@ -607,10 +607,14 @@ async def get_query_agent_config() -> LocalAgentConfig:
     settings = load_settings(vault_path)
     model = settings.get("models", {}).get("query_agent", "gemini-3.5-flash")
     
+    identity_inst = get_agent_instructions("Identity (Linee Guida Generali)")
     instructions = get_agent_instructions("Query Agent")
     profile = load_user_profile()
     
     full_system_instructions = f"""
+{identity_inst}
+
+---
 {instructions}
 
 ---

@@ -91,7 +91,7 @@ def get_agent_instructions(agent_name: str) -> str:
         return ""
     with open(agents_md, "r", encoding="utf-8") as f:
         content = f.read()
-    pattern = rf"##\s+{agent_name}\s*\n(.*?)(?=\n##(?![#])|$)"
+    pattern = rf"##\s+{re.escape(agent_name)}\s*\n(.*?)(?=\n##(?![#])|$)"
     match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else ""
 
