@@ -67,6 +67,7 @@ def save_processed_files_batch(relative_paths: list[str]):
 def read_raw_file(relative_path: str) -> str:
     """
     Legge il contenuto di un file sorgente in raw/ o di un verbale in Meetings/.
+    Supporta l'estrazione di testo da PDF (.pdf) e Word (.docx) se disponibili.
     
     Args:
         relative_path: Il percorso del file relativo al vault (es. 'raw/manual/nota.md').
@@ -74,8 +75,39 @@ def read_raw_file(relative_path: str) -> str:
     abs_path = os.path.join(get_vault_path(), relative_path)
     if not os.path.exists(abs_path):
         raise FileNotFoundError(f"File raw '{relative_path}' non trovato.")
-    with open(abs_path, "r", encoding="utf-8") as f:
-        return f.read()
+        
+    lower_path = relative_path.lower()
+    
+    if lower_path.endswith(".pdf"):
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(abs_path)
+            text = []
+            for page in doc:
+                text.append(page.get_text())
+            doc.close()
+            return "\n".join(text)
+        except Exception as e:
+            raise RuntimeError(f"Impossibile leggere il PDF '{relative_path}' tramite PyMuPDF: {e}")
+            
+    elif lower_path.endswith(".docx"):
+        try:
+            import docx
+            doc = docx.Document(abs_path)
+            text = []
+            for para in doc.paragraphs:
+                text.append(para.text)
+            return "\n".join(text)
+        except Exception as e:
+            raise RuntimeError(f"Impossibile leggere il documento Word '{relative_path}' tramite python-docx: {e}")
+            
+    # Default: leggi come testo semplice UTF-8 con fallback in caso di UnicodeDecodeError
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        with open(abs_path, "r", encoding="latin-1", errors="ignore") as f:
+            return f.read()
 
 def write_wiki_page(relative_path: str, content: str, frontmatter: dict = None) -> str:
     """
