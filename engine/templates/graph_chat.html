@@ -1238,7 +1238,8 @@
                                 Graph.nodeVal(Graph.nodeVal());
                             }
                         })
-                        .onNodeClick(node => handleNodeClick(node));
+                        .onNodeClick(node => handleNodeClick(node))
+                        .onNodeDblClick(node => handleNodeClick(node));
 
                     // Abilita la rotazione in idle della camera
                     setTimeout(() => {
@@ -2076,11 +2077,45 @@
             modal.style.display = 'none';
         }
 
+        window.createWikiPage = async function(path, title) {
+            showModalLoading(path);
+            try {
+                const response = await fetch('/api/wiki/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path, title })
+                });
+                if (!response.ok) {
+                    throw new Error("Errore durante la creazione della pagina.");
+                }
+                setTimeout(() => {
+                    openWikiModal(path);
+                    if (typeof fetchGraphData === 'function') {
+                        fetchGraphData();
+                    }
+                }, 500);
+            } catch (err) {
+                showModal("Errore", `<div style="color:var(--accent-red); padding:20px; text-align:center;">${err.message || err}</div>`);
+            }
+        };
+
         async function openWikiModal(path) {
             if (!path) return;
             showModalLoading(path);
             try {
                 const response = await fetch(`/api/wiki?path=${encodeURIComponent(path)}`);
+                if (response.status === 404) {
+                    const title = path.split('/').pop().replace('.md', '');
+                    showModal("Nota Inesistente", `
+                        <div style="text-align: center; padding: 20px;">
+                            <p style="color: var(--text-secondary); margin-bottom: 20px;">La nota <strong>"${title}"</strong> (${path}) non esiste ancora nel vault.</p>
+                            <button onclick="createWikiPage('${path}', '${title}')" style="background: var(--accent-purple); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s;">
+                                Crea nota nel vault
+                            </button>
+                        </div>
+                    `);
+                    return;
+                }
                 if (!response.ok) {
                     throw new Error(`Errore HTTP: ${response.status}`);
                 }

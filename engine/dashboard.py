@@ -536,6 +536,53 @@ def get_wiki_page(path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class CreateWikiRequest(BaseModel):
+    path: str
+    title: str
+
+@app.post("/api/wiki/create")
+def create_wiki_page_endpoint(req: CreateWikiRequest):
+    import time
+    vault_path = get_vault_path()
+    path = req.path
+    title = req.title
+    
+    clean_path = os.path.normpath(path).replace("\\", "/").lstrip('/')
+    if clean_path.startswith("..") or os.path.isabs(clean_path):
+        raise HTTPException(status_code=400, detail="Percorso non valido.")
+        
+    if not clean_path.endswith(".md"):
+        clean_path += ".md"
+        
+    if "/" not in clean_path:
+        clean_path = os.path.join("wiki/concepts", clean_path)
+        
+    abs_path = os.path.join(vault_path, clean_path)
+    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+    
+    if os.path.exists(abs_path):
+        raise HTTPException(status_code=400, detail="La pagina esiste già.")
+        
+    try:
+        content = f"""---
+type: concept
+created_at: '{time.strftime("%Y-%m-%d %H:%M:%S")}'
+updated_at: '{time.strftime("%Y-%m-%d %H:%M:%S")}'
+---
+# {title}
+
+Questa pagina è stata creata come segnaposto dal grafo del Secondo Cervello.
+"""
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            
+        global _graph_cache
+        _graph_cache = None
+        
+        return {"status": "success", "path": clean_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 async def choose_emoji_via_llm(query: str, answer: str) -> str:
     try:
         from engine.utils.llm_fallback import resolve_gemini_key
