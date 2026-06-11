@@ -892,6 +892,21 @@
         let hoverNode = null;
         let isGraphThinking = false; // Stato di "ragionamento" preventivo
         window.activeLegendGroup = null;
+        let hideNodeLabels = false; // Nascondi etichette durante il ragionamento del chatbot
+
+        function refreshGraphRendering() {
+            if (!Graph) return;
+            try {
+                if (is3D) {
+                    if (typeof Graph.nodeLabel === 'function') Graph.nodeLabel(Graph.nodeLabel());
+                    if (typeof Graph.nodeColor === 'function') Graph.nodeColor(Graph.nodeColor());
+                } else {
+                    if (typeof Graph.nodeCanvasObject === 'function') Graph.nodeCanvasObject(Graph.nodeCanvasObject());
+                }
+            } catch (err) {
+                console.warn("Errore durante il refresh del grafo:", err);
+            }
+        }
 
         const container = document.getElementById('graph-container');
         const toggleBtn = document.getElementById('mode-toggle');
@@ -1172,6 +1187,7 @@
                             return srcGroup === window.activeLegendGroup && tgtGroup === window.activeLegendGroup;
                         })
                         .nodeLabel(node => {
+                            if (hideNodeLabels) return null;
                             return node.id.split('/').pop().replace('.md', '');
                         })
                         .nodeColor(node => {
@@ -1271,7 +1287,10 @@
                         const tgtGroup = typeof link.target === 'object' ? link.target.id : graphData.nodes.find(n => n.id === link.target)?.group;
                         return srcGroup === window.activeLegendGroup && tgtGroup === window.activeLegendGroup;
                     })
-                    .nodeLabel('id')
+                    .nodeLabel(node => {
+                        if (hideNodeLabels) return null;
+                        return node.id.split('/').pop().replace('.md', '');
+                    })
                     // Disegna i nodi come cerchi 2D vettoriali su canvas con neon glow
                     .nodeCanvasObject((node, ctx, globalScale) => {
                         const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
@@ -1322,7 +1341,7 @@
                         // Rimosso bordo bianco per outline pulito
                         
                         // Disegna l'etichetta del testo se lo zoom è abbastanza alto o se il nodo è attivo
-                        if (globalScale > 1.2 || isPrimary || isHovered) {
+                        if (!hideNodeLabels && (globalScale > 1.2 || isPrimary || isHovered)) {
                             const label = node.id.split('/').pop().replace('.md', '');
                             const fontSize = Math.max(10 / globalScale, 6);
                             ctx.font = `${isHovered || isPrimary ? 'bold' : 'normal'} ${fontSize}px 'ABC Repro', sans-serif`;
@@ -1797,7 +1816,9 @@
             }, 600);
 
             const relevantNodes = findRelevantNodes(message);
+            hideNodeLabels = true;
             highlightNodes(relevantNodes, true);
+            refreshGraphRendering();
 
             if (Graph && typeof Graph.controls === 'function') {
                 try {
@@ -1982,11 +2003,15 @@
             if (useTypewriter) {
                 typeWriter(textDiv, content, 8, () => {
                     addCopyButton(div, textDiv);
+                    hideNodeLabels = false;
+                    refreshGraphRendering();
                 });
             } else {
                 textDiv.innerHTML = content;
                 if (!content.includes('loading-dots') && !content.includes('thinking-emoji')) {
                     addCopyButton(div, textDiv);
+                    hideNodeLabels = false;
+                    refreshGraphRendering();
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
