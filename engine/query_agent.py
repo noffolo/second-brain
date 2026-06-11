@@ -6,6 +6,7 @@ from google.antigravity import Agent, LocalAgentConfig
 from engine.utils.markdown import load_settings, parse_markdown
 from engine.tools.vault_tools import get_vault_path, search_wiki, append_to_log, create_wiki_page_tool
 from engine.tools.notion_tasks import create_notion_task
+from engine.tools.notion_calendar import create_notion_calendar_event
 from engine.git_ops import auto_commit
 
 # Custom tool for agent
@@ -731,8 +732,8 @@ Non utilizzare MAI l'inglese per rispondere.
 Non elencare o esplorare cartelle del filesystem a meno che non ti venga richiesto esplicitamente.
 
 VINCOLO DI SCRITTURA ED AZIONE (CRITICO):
-1. Possiedi gli strumenti `create_notion_task` (per creare task/to-do) e `create_wiki_page_tool` (per creare nuove note nel wiki).
-2. Non confermare MAI all'utente di aver creato un task o una nota o di aver fatto modifiche a meno che tu non abbia effettivamente eseguito con successo il tool corrispondente.
+1. Possiedi gli strumenti `create_notion_task` (per creare task/to-do), `create_notion_calendar_event` (per pianificare riunioni o eventi calendario) e `create_wiki_page_tool` (per creare nuove note nel wiki).
+2. Non confermare MAI all'utente di aver creato un task, un appuntamento o una nota a meno che tu non abbia effettivamente eseguito con successo il tool corrispondente.
 3. Se l'utente ti chiede di eseguire un'operazione di scrittura o modifica che non è coperta dai tuoi strumenti (es. eliminare file, modificare file arbitrari, ecc.), devi cortesemente spiegare che non hai lo strumento per farlo, anziché far finta di averlo fatto.
 
 COMPORTAMENTO IN CASO DI DATI MANCANTI E PERSONA:
@@ -755,6 +756,7 @@ Le tue istruzioni base sono:
             get_second_brain_statistics, 
             get_detailed_list,
             create_notion_task,
+            create_notion_calendar_event,
             create_wiki_page_tool
         ],
         **kwargs

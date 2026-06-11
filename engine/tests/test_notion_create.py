@@ -76,3 +76,33 @@ def test_create_notion_task_fallback():
         test_cat_dir = os.path.join(vault_path, "wiki", "entities", test_category)
         if os.path.exists(test_cat_dir):
             shutil.rmtree(test_cat_dir)
+
+def test_create_notion_calendar_event_fallback():
+    from engine.tools.notion_calendar import create_notion_calendar_event
+    vault_path = get_vault_path()
+    test_title = "Test Meeting Fallback Creation 2026"
+    test_start_time = "2026-06-11T19:00:00"
+    test_location = "Ufficio Test"
+    
+    expected_rel_path = "wiki/sources/Riunioni/Test Meeting Fallback Creation 2026.md"
+    expected_abs_path = os.path.join(vault_path, expected_rel_path)
+    
+    if os.path.exists(expected_abs_path):
+        os.remove(expected_abs_path)
+        
+    try:
+        msg = create_notion_calendar_event(test_title, test_start_time, location=test_location)
+        assert "creato" in msg.lower()
+        assert os.path.exists(expected_abs_path)
+        
+        with open(expected_abs_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        assert "Test Meeting Fallback Creation 2026" in content
+        assert "2026-06-11T19:00:00" in content
+        assert "Ufficio Test" in content
+        assert "meeting" in content
+        
+    finally:
+        if os.path.exists(expected_abs_path):
+            os.remove(expected_abs_path)

@@ -21,6 +21,8 @@ from engine.utils.markdown import parse_markdown
 from engine.query_agent import query_agent_answer, get_second_brain_statistics
 from engine.watcher import watch_vault_changes
 from engine.tools.mail_idle import start_imap_idle_listeners
+from engine.tools.notion_tasks import create_notion_task
+from engine.tools.notion_calendar import create_notion_calendar_event
 
 # FastMCP Server Import
 try:
@@ -209,6 +211,21 @@ app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(os.path.
 
 class TimeScheduleRequest(BaseModel):
     time: str  # Format: "HH:MM"
+
+class TaskCreateRequest(BaseModel):
+    title: str
+    due_date: Optional[str] = None
+    status: Optional[str] = "To Do"
+    category: Optional[str] = "General"
+
+class CalendarEventCreateRequest(BaseModel):
+    title: str
+    start_time: str
+    end_time: Optional[str] = None
+    location: Optional[str] = None
+
+class FileEditRequest(BaseModel):
+    content: str
 
 # --- Ingestion Process Manager ---
 class IngestionManager:
@@ -781,6 +798,164 @@ def update_schedule(req: TimeScheduleRequest):
     if success:
         return {"status": "updated", "time": req.time}
     return JSONResponse(status_code=500, content={"status": "error_updating"})
+
+def get_local_tasks() -> list:
+    vault_path = get_vault_path()
+    tasks = []
+    entities_dir = os.path.join(vault_path, "wiki", "entities")
+    if not os.path.exists(entities_dir):
+        return tasks
+    for root, _, files in os.walk(entities_dir):
+        for file in files:
+            if file.endswith(".md") and not file.startswith("."):
+                filepath = os.path.join(root, file)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    fm, body = parse_markdown(content)
+                    if fm.get("type") in ["microtheme", "task"]:
+                        tasks.append({
+                            "title": fm.get("title") or os.path.splitext(file)[0],
+                            "status": fm.get("status") or "To Do",
+                            "due_date": fm.get("due_date"),
+                            "notion_page_id": fm.get("notion_page_id"),
+                            "source": fm.get("source", "local"),
+                            "category": os.path.basename(root),
+                            "path": os.path.relpath(filepath, vault_path)
+                        })
+                except Exception:
+                    pass
+    return tasks
+
+def get_local_meetings() -> list:
+    vault_path = get_vault_path()
+    meetings = []
+    meetings_dirs = [
+        os.path.join(vault_path, "wiki", "sources", "Riunioni"),
+        os.path.join(vault_path, "Meetings")
+    ]
+    for m_dir in meetings_dirs:
+        if not os.path.exists(m_dir):
+            continue
+        for root, _, files in os.walk(m_dir):
+            for file in files:
+                if file.endswith(".md") and not file.startswith("."):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        fm, body = parse_markdown(content)
+                        if fm.get("type") in ["meeting", "calendar_event"]:
+                            meetings.append({
+                                "title": fm.get("title") or os.path.splitext(file)[0],
+                                "quando": fm.get("quando") or fm.get("start_time", "")[:10],
+                                "start_time": fm.get("start_time"),
+                                "end_time": fm.get("end_time"),
+                                "location": fm.get("location"),
+                                "notion_page_id": fm.get("notion_page_id"),
+                                "source": fm.get("source", "local"),
+                                "path": os.path.relpath(filepath, vault_path)
+                            })
+                    except Exception:
+                        pass
+    meetings.sort(key=lambda x: x["quando"], reverse=True)
+    return meetings
+
+@app.get("/api/notion/tasks")
+def api_get_tasks():
+    try:
+        tasks = get_local_tasks()
+        return {"tasks": tasks}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/notion/tasks/create")
+def api_create_task(req: TaskCreateRequest):
+    try:
+        msg = create_notion_task(
+            title=req.title,
+            due_date=req.due_date,
+            status=req.status,
+            category=req.category
+        )
+        return {"status": "success", "message": msg}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/notion/calendar")
+def api_get_calendar():
+    try:
+        meetings = get_local_meetings()
+        return {"events": meetings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/notion/calendar/create")
+def api_create_calendar_event(req: CalendarEventCreateRequest):
+    try:
+        msg = create_notion_calendar_event(
+            title=req.title,
+            start_time=req.start_time,
+            end_time=req.end_time,
+            location=req.location
+        )
+        return {"status": "success", "message": msg}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/prompt")
+def api_get_prompt():
+    vault_path = get_vault_path()
+    prompt_path = os.path.join(vault_path, "agents.md")
+    if not os.path.exists(prompt_path):
+        raise HTTPException(status_code=404, detail="File agents.md non trovato.")
+    try:
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"content": content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/prompt")
+def api_save_prompt(req: FileEditRequest):
+    vault_path = get_vault_path()
+    prompt_path = os.path.join(vault_path, "agents.md")
+    try:
+        with open(prompt_path, "w", encoding="utf-8") as f:
+            f.write(req.content)
+        # Git auto-commit
+        from engine.git_ops import auto_commit
+        auto_commit(vault_path, "[Dashboard Config] Aggiornato agents.md")
+        return {"status": "success", "message": "agents.md salvato con successo."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user_profile")
+def api_get_user_profile():
+    vault_path = get_vault_path()
+    profile_path = os.path.join(vault_path, "user_profile.md")
+    if not os.path.exists(profile_path):
+        raise HTTPException(status_code=404, detail="File user_profile.md non trovato.")
+    try:
+        with open(profile_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"content": content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/user_profile")
+def api_save_user_profile(req: FileEditRequest):
+    vault_path = get_vault_path()
+    profile_path = os.path.join(vault_path, "user_profile.md")
+    try:
+        with open(profile_path, "w", encoding="utf-8") as f:
+            f.write(req.content)
+        # Git auto-commit
+        from engine.git_ops import auto_commit
+        auto_commit(vault_path, "[Dashboard Config] Aggiornato user_profile.md")
+        return {"status": "success", "message": "user_profile.md salvato con successo."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/logs/stream")
 async def logs_stream(request: Request):
