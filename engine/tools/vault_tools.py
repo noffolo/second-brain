@@ -399,3 +399,63 @@ def list_unprocessed_raw() -> list[str]:
         
     unprocessed.sort(key=get_priority)
     return unprocessed
+
+def create_wiki_page_tool(title: str, category: str, content: str, tags: list = None) -> str:
+    """
+    Crea una nuova nota/pagina informativa nel wiki locale del Secondo Cervello.
+    
+    Args:
+        title: Il titolo della pagina (es. 'Architettura Transformatore', 'Mario Rossi').
+        category: La categoria della nota (deve essere 'concepts', 'entities' o 'sources').
+        content: Il contenuto in formato markdown.
+        tags: Una lista opzionale di tag associati (es. ['AI', 'deep-learning']).
+    """
+    import re
+    from engine.utils.markdown import to_markdown
+    
+    vault_path = get_vault_path()
+    
+    # Validazione categoria
+    category_lower = category.lower().strip()
+    if category_lower not in ["concepts", "entities", "sources"]:
+        return "Errore: La categoria deve essere una tra 'concepts', 'entities', o 'sources'."
+        
+    # Sanitizzazione titolo e percorso
+    clean_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
+    if not clean_title:
+        return "Errore: Il titolo fornito non è valido."
+        
+    relative_path = f"wiki/{category_lower}/{clean_title}.md"
+    abs_path = os.path.join(vault_path, relative_path)
+    
+    if os.path.exists(abs_path):
+        return f"Nota esistente: Una pagina con titolo '{title}' esiste già in `{relative_path}`."
+        
+    # Costruisci frontmatter standard
+    fm = {
+        "title": title,
+        "type": "concept" if category_lower == "concepts" else ("entity" if category_lower == "entities" else "source"),
+        "tags": tags or [],
+        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Costruisci corpo markdown
+    body = f"# {title}\n\n{content.strip()}\n"
+    
+    full_md = to_markdown(fm, body)
+    
+    try:
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(full_md)
+            
+        # Auto-commit su Git se configurato
+        try:
+            from engine.git_ops import git_commit_file
+            git_commit_file(relative_path, f"Crea nota: {title}")
+        except Exception:
+            pass
+            
+        return f"Nota '{title}' creata con successo nel wiki in `{relative_path}`."
+    except Exception as e:
+        return f"Errore durante la creazione della nota locale: {e}"

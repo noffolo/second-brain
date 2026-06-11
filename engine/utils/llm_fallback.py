@@ -135,7 +135,7 @@ async def call_openai_compatible_api(url: str, api_key: str, model: str, system_
     for attempt in range(max_retries + 1):
         try:
             def do_request():
-                with urllib.request.urlopen(req, context=ssl_context, timeout=90) as response:
+                with urllib.request.urlopen(req, context=ssl_context, timeout=25) as response:
                     return response.read().decode("utf-8")
                     
             resp_body = await loop.run_in_executor(None, do_request)
@@ -201,7 +201,7 @@ async def call_native_gemini_api(model: str, api_key: str, system_instructions: 
     for attempt in range(max_retries + 1):
         try:
             def do_request():
-                with urllib.request.urlopen(req, context=ssl_context, timeout=90) as response:
+                with urllib.request.urlopen(req, context=ssl_context, timeout=25) as response:
                     return response.read().decode("utf-8")
                     
             resp_body = await loop.run_in_executor(None, do_request)

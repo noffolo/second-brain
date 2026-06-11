@@ -4,7 +4,8 @@ import time
 import asyncio
 from google.antigravity import Agent, LocalAgentConfig
 from engine.utils.markdown import load_settings, parse_markdown
-from engine.tools.vault_tools import get_vault_path, search_wiki, append_to_log
+from engine.tools.vault_tools import get_vault_path, search_wiki, append_to_log, create_wiki_page_tool
+from engine.tools.notion_tasks import create_notion_task
 from engine.git_ops import auto_commit
 
 # Custom tool for agent
@@ -114,6 +115,58 @@ def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
     """
     results = []
     seen_paths = set()
+    
+    # 0. Ricerca per intersezione di parole chiave (AND)
+    keywords = extract_keywords(query)
+    if len(keywords) > 1:
+        try:
+            import subprocess
+            vault = get_vault_path()
+            file_sets = []
+            for kw in keywords[:4]:
+                cmd = ["git", "grep", "--no-index", "-I", "-i", "-l", "-F", "-e", kw, "--", "*.md"]
+                res = subprocess.run(cmd, cwd=vault, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+                if res.returncode == 0:
+                    files = {line.strip() for line in res.stdout.splitlines() if line.strip()}
+                    file_sets.append(files)
+            
+            if file_sets:
+                intersected = set.intersection(*file_sets)
+                allowed_intersected = []
+                for rel_filepath in intersected:
+                    allowed = False
+                    for sdir in ["wiki", "CRM", "journal", "Meetings", "Microthemes"]:
+                        if rel_filepath.startswith(sdir + "/") or rel_filepath.startswith(sdir + "\\"):
+                            allowed = True
+                            break
+                    if allowed:
+                        allowed_intersected.append(rel_filepath)
+                
+                # Inserisci i file che contengono tutte le parole chiave
+                for rel_filepath in allowed_intersected[:limit]:
+                    if rel_filepath not in seen_paths:
+                        seen_paths.add(rel_filepath)
+                        abs_filepath = os.path.join(vault, rel_filepath)
+                        if os.path.exists(abs_filepath):
+                            try:
+                                with open(abs_filepath, "r", encoding="utf-8") as f:
+                                    content = f.read()
+                                if content.startswith("---"):
+                                    parts = content.split("---", 2)
+                                    body = parts[2] if len(parts) >= 3 else content
+                                else:
+                                    body = content
+                                body_clean = body.strip()
+                                title = os.path.splitext(os.path.basename(rel_filepath))[0]
+                                results.append({
+                                    "path": rel_filepath,
+                                    "title": title,
+                                    "snippet": body_clean[:400] + "..." if len(body_clean) > 400 else body_clean
+                                })
+                            except Exception:
+                                pass
+        except Exception as e:
+            print(f"[Hybrid Search] Errore ricerca AND: {e}")
     
     # 1. Ricerca Vettoriale Semantica
     try:
@@ -579,6 +632,12 @@ PROFILO UTENTE (WORKING MEMORY):
 Devi rispondere SEMPRE ED ESCLUSIVAMENTE in lingua ITALIANA.
 Non utilizzare MAI l'inglese per rispondere.
 Non elencare o esplorare cartelle del filesystem a meno che non ti venga richiesto esplicitamente.
+
+VINCOLO DI SCRITTURA ED AZIONE (CRITICO):
+1. Possiedi gli strumenti `create_notion_task` (per creare task/to-do) e `create_wiki_page_tool` (per creare nuove note nel wiki).
+2. Non confermare MAI all'utente di aver creato un task o una nota o di aver fatto modifiche a meno che tu non abbia effettivamente eseguito con successo il tool corrispondente.
+3. Se l'utente ti chiede di eseguire un'operazione di scrittura o modifica che non è coperta dai tuoi strumenti (es. eliminare file, modificare file arbitrari, ecc.), devi cortesemente spiegare che non hai lo strumento per farlo, anziché far finta di averlo fatto.
+
 Le tue istruzioni base sono:
 {full_system_instructions}"""
     )
@@ -586,7 +645,14 @@ Le tue istruzioni base sono:
     return LocalAgentConfig(
         model=model,
         system_instructions=templated_si,
-        tools=[search_vault, read_wiki_page_content, get_second_brain_statistics, get_detailed_list],
+        tools=[
+            search_vault, 
+            read_wiki_page_content, 
+            get_second_brain_statistics, 
+            get_detailed_list,
+            create_notion_task,
+            create_wiki_page_tool
+        ],
         **kwargs
     )
 
@@ -658,11 +724,57 @@ Usa esclusivamente il contesto fornito per rispondere alla domanda dell'utente. 
 """
         
         from engine.utils.llm_fallback import call_llm_with_fallback
-        return await call_llm_with_fallback(
+        resp_text = await call_llm_with_fallback(
             prompt=enriched_prompt,
             system_instructions=fallback_instructions,
             gemini_config=config
         )
+        
+        # Gestione fallback per l'esecuzione manuale dei tool di scrittura
+        try:
+            import json
+            json_block_match = re.search(r'```json\s*(.*?)\s*```', resp_text, re.DOTALL)
+            json_str = json_block_match.group(1) if json_block_match else resp_text.strip()
+            
+            tool_call = json.loads(json_str)
+            if isinstance(tool_call, dict) and "action" in tool_call and "action_input" in tool_call:
+                action = tool_call["action"]
+                action_input = tool_call["action_input"]
+                
+                if isinstance(action_input, str):
+                    try:
+                        inputs = json.loads(action_input)
+                    except Exception:
+                        inputs = {"value": action_input}
+                else:
+                    inputs = action_input or {}
+                    
+                print(f"[Fallback Tool Executor] Esecuzione manuale dello strumento '{action}' con input: {inputs}")
+                
+                if action == "create_notion_task":
+                    result = await asyncio.to_thread(
+                        create_notion_task,
+                        title=inputs.get("title", ""),
+                        due_date=inputs.get("due_date"),
+                        status=inputs.get("status", "To Do"),
+                        category=inputs.get("category", "General")
+                    )
+                    return result
+                elif action == "create_wiki_page_tool":
+                    result = await asyncio.to_thread(
+                        create_wiki_page_tool,
+                        title=inputs.get("title", ""),
+                        category=inputs.get("category", ""),
+                        content=inputs.get("content", ""),
+                        tags=inputs.get("tags")
+                    )
+                    return result
+        except Exception as tool_err:
+            # Non è una chiamata a uno strumento o si è verificato un errore di parsing
+            pass
+            
+        return resp_text
+
 
 async def run_interactive_loop():
     config = await get_query_agent_config()

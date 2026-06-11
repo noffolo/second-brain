@@ -241,6 +241,61 @@
             border-bottom: 1px solid #fff;
         }
 
+        /* Responsive and beautifully styled tables */
+        .message.bot table, #modal-body table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 18px;
+            margin-bottom: 22px;
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(10, 12, 17, 0.5);
+            font-size: 0.95rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .message.bot th, #modal-body th {
+            background: rgba(157, 78, 221, 0.15); /* Purple accent with transparency */
+            color: var(--text-primary);
+            font-weight: 900;
+            text-align: left;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--panel-border);
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .message.bot td, #modal-body td {
+            padding: 14px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            line-height: 1.45;
+            vertical-align: top;
+            transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .message.bot tr:last-child td, #modal-body tr:last-child td {
+            border-bottom: none;
+        }
+
+        .message.bot tr:hover td, #modal-body tr:hover td {
+            background: rgba(255, 255, 255, 0.025);
+            color: var(--text-primary);
+        }
+
+        /* Allow table content to scroll horizontally if it overflows on narrow screens */
+        @media (max-width: 768px) {
+            .message.bot table, #modal-body table {
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+        }
+
+
         /* Custom Scrollbars for Pre blocks */
         .message.bot pre::-webkit-scrollbar, #modal-body pre::-webkit-scrollbar {
             height: 6px;
@@ -363,7 +418,7 @@
         .chat-form {
             display: flex;
             gap: 15px;
-            align-items: center;
+            align-items: flex-end;
         }
 
         .chat-input {
@@ -371,14 +426,19 @@
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
             color: #fff;
-            padding: 0 24px;
+            padding: 18px 24px;
             height: 60px;
+            min-height: 60px;
+            max-height: 200px;
             border-radius: 12px;
             font-size: 1.0rem; /* Ridotto a 1.0rem per compattezza */
             font-weight: 500; /* Forza il peso Medium della font */
             outline: none;
             transition: border-color 0.3s;
             box-sizing: border-box;
+            resize: none;
+            line-height: 1.4;
+            font-family: inherit;
         }
 
         .chat-input:focus {
@@ -440,9 +500,26 @@
             justify-content: space-between;
             margin-bottom: 8px;
             color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            user-select: none;
         }
         .legend-item:last-child {
             margin-bottom: 0;
+        }
+        .legend-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+        .legend-item.active {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            font-weight: 700;
+        }
+        .legend-item.dimmed {
+            opacity: 0.4;
         }
         .legend-color-dot {
             width: 10px;
@@ -737,7 +814,7 @@
 <body>
 
     <div id="graph-panel">
-        <button class="toggle-btn" id="mode-toggle">Switch to 2D</button>
+        <button class="toggle-btn" id="mode-toggle">Switch to 3D</button>
         <div id="graph-container"></div>
         <div id="graph-legend">
             <div id="legend-items"></div>
@@ -763,7 +840,7 @@
                     <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                 </button>
                 
-                <input type="text" id="chat-input" class="chat-input" placeholder="Chiedi al Secondo Cervello o trascina file..." autocomplete="off">
+                <textarea id="chat-input" class="chat-input" placeholder="Chiedi al Secondo Cervello o trascina file..." autocomplete="off" rows="1"></textarea>
                 
                 <!-- Pulsante dettatura vocale -->
                 <button type="button" id="mic-btn" class="input-action-btn" title="Dettatura vocale">
@@ -808,12 +885,13 @@
         };
 
         let graphData = { nodes: [], links: [] };
-        let is3D = true; // Impostiamo 3D come default
+        let is3D = false; // Impostiamo 2D come default
         let Graph = null;
         window.primaryActiveNodes = new Set();
         window.secondaryActiveNodes = new Set();
         let hoverNode = null;
         let isGraphThinking = false; // Stato di "ragionamento" preventivo
+        window.activeLegendGroup = null;
 
         const container = document.getElementById('graph-container');
         const toggleBtn = document.getElementById('mode-toggle');
@@ -849,6 +927,13 @@
                 if (count > 0 || cat.group === 1) {
                     const item = document.createElement('div');
                     item.className = 'legend-item';
+                    if (window.activeLegendGroup !== null) {
+                        if (window.activeLegendGroup === cat.group) {
+                            item.classList.add('active');
+                        } else {
+                            item.classList.add('dimmed');
+                        }
+                    }
                     item.innerHTML = `
                         <div style="display:flex; align-items:center;">
                             <span class="legend-color-dot" style="background-color: ${cat.color}; box-shadow: 0 0 6px ${cat.color}"></span>
@@ -856,6 +941,21 @@
                         </div>
                         <span class="legend-count">${count}</span>
                     `;
+                    item.addEventListener('click', () => {
+                        if (window.activeLegendGroup === cat.group) {
+                            window.activeLegendGroup = null;
+                        } else {
+                            window.activeLegendGroup = cat.group;
+                        }
+                        updateLegend(nodes);
+                        if (Graph) {
+                            Graph.nodeVisibility(Graph.nodeVisibility());
+                            Graph.linkVisibility(Graph.linkVisibility());
+                            if (typeof Graph.refresh === 'function') {
+                                Graph.refresh();
+                            }
+                        }
+                    });
                     legendContainer.appendChild(item);
                 }
             });
@@ -896,7 +996,7 @@
             if (Graph && is3D && typeof Graph.controls === 'function') {
                 const controls = Graph.controls();
                 if (controls) {
-                    controls.autoRotate = true;
+                    controls.autoRotate = false;
                     controls.autoRotateSpeed = speed;
                 }
             }
@@ -928,11 +1028,11 @@
 
         function getLinkColor(link) {
             const type = getLinkType(link);
-            if (type === 'default') return 'rgba(157, 78, 221, 0.5)'; // Opacità 0.5
-            if (type === 'strong') return HIGHLIGHT_COLOR; // Ciano neon
-            if (type === 'medium') return 'rgba(0, 245, 212, 0.6)';
-            if (type === 'weak') return 'rgba(157, 78, 221, 0.4)';
-            return 'rgba(255, 255, 255, 0.15)'; // Opacità 0.15 per inattivi
+            if (type === 'default') return 'rgba(157, 78, 221, 0.35)';
+            if (type === 'strong') return 'rgba(0, 245, 212, 0.7)';
+            if (type === 'medium') return 'rgba(0, 245, 212, 0.45)';
+            if (type === 'weak') return 'rgba(157, 78, 221, 0.25)';
+            return 'rgba(255, 255, 255, 0.1)';
         }
 
         function getLinkWidth(link) {
@@ -945,16 +1045,11 @@
         }
 
         function getLinkParticles(link) {
-            const type = getLinkType(link);
-            if (isGraphThinking) {
-                const srcId = typeof link.source === 'object' ? link.source.id : link.source;
-                const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
-                const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId);
-                if (isConnected) return 4;
-                return 0;
-            }
-            if (type === 'strong') return 4;
-            if (type === 'medium') return 2;
+            if (!isGraphThinking) return 0;
+            const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+            const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+            const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId);
+            if (isConnected) return 4;
             return 0;
         }
 
@@ -1002,43 +1097,7 @@
             return circleTexture;
         }
 
-        // Aggiorna scala/colore di Sprite 3D
-        function updateSpriteProperties(node, sprite) {
-            let baseColor = getGroupColor(node.group || 1);
-            let opacity = 0.85;
-            let scaleMultiplier = 1.0;
-            
-            const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
-            const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
-            const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
-            
-            if (node === hoverNode) {
-                baseColor = '#ffffff';
-                scaleMultiplier = 1.6;
-                opacity = 1.0;
-            } else if (hasActiveNodes) {
-                if (isPrimary) {
-                    baseColor = HIGHLIGHT_COLOR;
-                    scaleMultiplier = 2.0;
-                    opacity = 1.0;
-                } else if (isSecondary) {
-                    scaleMultiplier = 1.3;
-                    opacity = 0.8;
-                } else {
-                    scaleMultiplier = 0.5;
-                    opacity = 0.15;
-                }
-            }
-            
-            if (sprite && sprite.material) {
-                sprite.material.color.set(baseColor);
-                sprite.material.opacity = opacity;
-                
-                const baseRadius = Math.max(Math.sqrt(node.val || 1) * 3.5, 6);
-                const finalSize = baseRadius * scaleMultiplier;
-                sprite.scale.set(finalSize, finalSize, 1);
-            }
-        }
+        // Rimosso updateSpriteProperties non più necessario con sfere 3D native
 
         // Funzione zoom/pan riutilizzabile per 2D e 3D
         function zoomToNode(node) {
@@ -1066,8 +1125,17 @@
         // Gestore del click sul nodo (Focus + Modale Wiki)
         function handleNodeClick(node) {
             if (!node || !node.id) return;
-            zoomToNode(node);
-            openWikiModal(node.id);
+            console.log("Cliccato nodo:", node.id);
+            try {
+                openWikiModal(node.id);
+            } catch (err) {
+                console.error("Errore openWikiModal:", err);
+            }
+            try {
+                zoomToNode(node);
+            } catch (err) {
+                console.error("Errore zoomToNode:", err);
+            }
         }
 
         // Inizializzazione Principale del Grafo con Fallback Automatico
@@ -1093,18 +1161,49 @@
                         .width(container.clientWidth)
                         .height(container.clientHeight)
                         .graphData(graphData)
-                        .nodeLabel('id')
-                        .nodeThreeObject(node => {
-                            const THREE = window.THREE_LEGACY;
-                            if (!THREE) return null;
-                            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-                                map: getCircleTexture(),
-                                transparent: true,
-                                depthWrite: false
-                            }));
-                            updateSpriteProperties(node, sprite);
-                            return sprite;
+                        .nodeVisibility(node => {
+                            if (window.activeLegendGroup === null) return true;
+                            return node.group === window.activeLegendGroup;
                         })
+                        .linkVisibility(link => {
+                            if (window.activeLegendGroup === null) return true;
+                            const srcGroup = typeof link.source === 'object' ? link.source.group : graphData.nodes.find(n => n.id === link.source)?.group;
+                            const tgtGroup = typeof link.target === 'object' ? link.target.id : graphData.nodes.find(n => n.id === link.target)?.group;
+                            return srcGroup === window.activeLegendGroup && tgtGroup === window.activeLegendGroup;
+                        })
+                        .nodeLabel(node => {
+                            return node.id.split('/').pop().replace('.md', '');
+                        })
+                        .nodeColor(node => {
+                            const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
+                            const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
+                            const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
+                            const isHovered = node === hoverNode;
+                            
+                            if (isHovered) return '#ffffff';
+                            if (hasActiveNodes) {
+                                if (isPrimary) return HIGHLIGHT_COLOR;
+                                if (isSecondary) return getGroupColor(node.group || 1);
+                                return 'rgba(157, 78, 221, 0.12)';
+                            }
+                            return getGroupColor(node.group || 1);
+                        })
+                        .nodeVal(node => {
+                            const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
+                            const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
+                            const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
+                            const isHovered = node === hoverNode;
+                            
+                            let baseRadius = Math.max(Math.sqrt(node.val || 1) * 2.0, 3.5);
+                            if (isHovered) return baseRadius * 1.5;
+                            if (hasActiveNodes) {
+                                if (isPrimary) return baseRadius * 1.8;
+                                if (isSecondary) return baseRadius * 1.2;
+                                return baseRadius * 0.5;
+                            }
+                            return baseRadius;
+                        })
+                        .nodeResolution(8)
                         .linkColor(link => getLinkColor(link))
                         .linkWidth(link => getLinkWidth(link))
                         .linkDirectionalParticles(link => getLinkParticles(link))
@@ -1118,11 +1217,9 @@
                             const prevHoverNode = hoverNode;
                             hoverNode = node || null;
                             document.body.style.cursor = node ? 'pointer' : null;
-                            if (prevHoverNode && prevHoverNode.__threeObj) {
-                                updateSpriteProperties(prevHoverNode, prevHoverNode.__threeObj);
-                            }
-                            if (hoverNode && hoverNode.__threeObj) {
-                                updateSpriteProperties(hoverNode, hoverNode.__threeObj);
+                            if (prevHoverNode !== hoverNode) {
+                                Graph.nodeColor(Graph.nodeColor());
+                                Graph.nodeVal(Graph.nodeVal());
                             }
                         })
                         .onNodeClick(node => handleNodeClick(node));
@@ -1133,7 +1230,7 @@
                             const controls = Graph.controls();
                             if (controls) {
                                 controls.enableRotate = true;
-                                controls.autoRotate = true;
+                                controls.autoRotate = false;
                                 controls.autoRotateSpeed = isGraphThinking ? 5.0 : 0.4;
                             }
                         }
@@ -1164,6 +1261,16 @@
                     .width(container.clientWidth)
                     .height(container.clientHeight)
                     .graphData(graphData)
+                    .nodeVisibility(node => {
+                        if (window.activeLegendGroup === null) return true;
+                        return node.group === window.activeLegendGroup;
+                    })
+                    .linkVisibility(link => {
+                        if (window.activeLegendGroup === null) return true;
+                        const srcGroup = typeof link.source === 'object' ? link.source.group : graphData.nodes.find(n => n.id === link.source)?.group;
+                        const tgtGroup = typeof link.target === 'object' ? link.target.id : graphData.nodes.find(n => n.id === link.target)?.group;
+                        return srcGroup === window.activeLegendGroup && tgtGroup === window.activeLegendGroup;
+                    })
                     .nodeLabel('id')
                     // Disegna i nodi come cerchi 2D vettoriali su canvas con neon glow
                     .nodeCanvasObject((node, ctx, globalScale) => {
@@ -1212,10 +1319,7 @@
                         ctx.fillStyle = baseColor;
                         ctx.fill();
                         
-                        // Bordo bianco per alta definizione
-                        ctx.lineWidth = 1.5 / globalScale;
-                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-                        ctx.stroke();
+                        // Rimosso bordo bianco per outline pulito
                         
                         // Disegna l'etichetta del testo se lo zoom è abbastanza alto o se il nodo è attivo
                         if (globalScale > 1.2 || isPrimary || isHovered) {
@@ -1326,13 +1430,19 @@
                 window.primaryActiveNodes.clear();
                 window.secondaryActiveNodes.clear();
                 
-                nodeIds.forEach(id => {
-                    const cleanId = id.split('/').pop().replace('.md', '').trim().toLowerCase();
-                    const matchedNode = graphData.nodes.find(n => n.id.toLowerCase() === cleanId);
-                    if (matchedNode) {
-                        window.primaryActiveNodes.add(matchedNode.id);
-                    }
-                });
+                if (nodeIds) {
+                    nodeIds.forEach(id => {
+                        if (!id) return;
+                        const cleanId = id.split('/').pop().replace('.md', '').trim().toLowerCase();
+                        const matchedNode = graphData.nodes.find(n => {
+                            const nClean = n.id.split('/').pop().replace('.md', '').trim().toLowerCase();
+                            return nClean === cleanId || n.id.toLowerCase() === id.toLowerCase();
+                        });
+                        if (matchedNode) {
+                            window.primaryActiveNodes.add(matchedNode.id);
+                        }
+                    });
+                }
                 
                 if (window.primaryActiveNodes.size === 0 && isThinking) {
                     const sortedNodes = [...graphData.nodes]
@@ -1359,16 +1469,12 @@
                     });
                 }
                 
-                // Aggiorna dinamicamente in-place le proprietà degli Sprite dei nodi (solo in 3D)
-                graphData.nodes.forEach(node => {
-                    if (node.__threeObj) {
-                        updateSpriteProperties(node, node.__threeObj);
-                    }
-                });
+                // Forza l'aggiornamento grafico dei nodi e link in 2D e 3D in modo nativo e pulito
+                if (Graph.nodeColor) Graph.nodeColor(Graph.nodeColor());
+                if (Graph.nodeVal) Graph.nodeVal(Graph.nodeVal());
+                if (Graph.linkColor) Graph.linkColor(Graph.linkColor());
+                if (Graph.linkWidth) Graph.linkWidth(Graph.linkWidth());
                 
-                // Forza il ricalcolo degli attributi grafici dei link
-                Graph.linkColor(Graph.linkColor());
-                Graph.linkWidth(Graph.linkWidth());
                 if (typeof Graph.linkDirectionalParticles === 'function') {
                     Graph.linkDirectionalParticles(Graph.linkDirectionalParticles());
                     Graph.linkDirectionalParticleSpeed(Graph.linkDirectionalParticleSpeed());
@@ -1439,6 +1545,24 @@
         const chatMessages = document.getElementById('chat-messages');
         const chatSubmit = document.getElementById('chat-submit');
         let chatHistory = [];
+
+        // Gestione multiriga ed auto-resize per la textarea chat-input
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (e.shiftKey) {
+                    // Shift+Enter: lascia il comportamento di default (va a capo)
+                } else {
+                    // Solo Enter: invia il form (click sul tasto submit)
+                    e.preventDefault();
+                    chatSubmit.click();
+                }
+            }
+        });
+
+        chatInput.addEventListener('input', () => {
+            chatInput.style.height = '60px'; // Resetta per ricalcolare
+            chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + 'px';
+        });
 
         // --- Gestione della Coda Upload ---
         let fileQueue = [];
@@ -1656,6 +1780,7 @@
             // 2. Invio messaggio di testo standard alla chat
             appendMessage('user', message);
             chatInput.value = '';
+            chatInput.style.height = '60px';
 
             const loadingId = 'loading-' + Date.now();
             appendMessage('bot', '<div class="thinking-emoji-container"><span class="thinking-emoji">🧠</span> <span class="loading-dots">Sto pensando</span></div>', loadingId);
@@ -1924,6 +2049,49 @@
 
         function closeModal() {
             modal.style.display = 'none';
+        }
+
+        async function openWikiModal(path) {
+            if (!path) return;
+            showModalLoading(path);
+            try {
+                const response = await fetch(`/api/wiki?path=${encodeURIComponent(path)}`);
+                if (!response.ok) {
+                    throw new Error(`Errore HTTP: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                let htmlContent = "";
+                
+                // Formatta il frontmatter se presente
+                if (data.frontmatter && Object.keys(data.frontmatter).length > 0) {
+                    htmlContent += `<div class="modal-meta" style="margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.85rem; border-left: 3px solid var(--accent-purple);">`;
+                    for (const [key, val] of Object.entries(data.frontmatter)) {
+                        if (val) {
+                            htmlContent += `<div><strong>${key}:</strong> ${typeof val === 'object' ? JSON.stringify(val) : val}</div>`;
+                        }
+                    }
+                    htmlContent += `</div>`;
+                }
+                
+                // Parsa il markdown del contenuto
+                let parsedContent = "";
+                if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                    parsedContent = marked.parse(data.content || "");
+                } else {
+                    parsedContent = fallbackMarkdown(data.content || "");
+                }
+                
+                // Parsa i wikilink all'interno del contenuto
+                parsedContent = parseWikilinks(parsedContent);
+                
+                htmlContent += `<div class="wiki-content">${parsedContent}</div>`;
+                
+                showModal(data.title, htmlContent);
+            } catch (err) {
+                console.error("Errore nel caricamento del modale wiki:", err);
+                showModal("Errore", `<div style="color: #ff6b6b; padding: 20px; text-align: center;">Impossibile caricare la pagina wiki.<br><br><code>${err.message || err}</code></div>`);
+            }
         }
 
         modalClose.addEventListener('click', closeModal);

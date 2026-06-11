@@ -256,5 +256,130 @@ def notion_tasks_sync() -> int:
         print(f"Errore durante sincronizzazione Notion Tasks: {e}")
         return tasks_processed
 
+def create_notion_task(title: str, due_date: str = None, status: str = "To Do", category: str = "General") -> str:
+    """
+    Crea un nuovo task sia su Notion che nel vault locale Obsidian.
+    Rileva dinamicamente i nomi dei campi dal database Notion (titolo, stato, data di scadenza)
+    per funzionare con qualsiasi schema.
+    In caso di errore con le API di Notion, effettua il fallback creando il task solo localmente nel vault.
+    
+    Args:
+        title: Il titolo del task.
+        due_date: La data di scadenza in formato YYYY-MM-DD (opzionale).
+        status: Lo stato iniziale (es. "To Do", "In Progress", "Done").
+        category: La sottocartella di wiki/entities/ (default: "General").
+    """
+    load_dotenv()
+    vault_path = get_vault_path()
+    settings = load_settings(vault_path)
+    
+    notion_settings = settings.get("sources", {}).get("notion", {})
+    token = os.getenv("NOTION_TOKEN")
+    db_id = notion_settings.get("tasks_database_id", "")
+    
+    notion_success = False
+    page_id = None
+    notion_error_msg = ""
+    
+    # 1. Tenta la creazione su Notion se configurato
+    if notion_settings.get("enabled", False) and token and db_id and NOTION_CLIENT_AVAILABLE:
+        try:
+            client = Client(auth=token)
+            
+            # Interroga lo schema del database per mappare dinamicamente i campi
+            db_schema = client.databases.retrieve(database_id=db_id)
+            properties_schema = db_schema.get("properties", {})
+            
+            # Trova la chiave del titolo (tipo "title")
+            title_name = next((k for k, v in properties_schema.items() if v.get("type") == "title"), None)
+            
+            # Trova la chiave dello stato (tipo "status", "select" o "checkbox")
+            status_name = next((k for k, v in properties_schema.items() if v.get("type") in ["status", "select", "checkbox"]), None)
+            status_type = properties_schema[status_name]["type"] if status_name else None
+            
+            # Trova la chiave della data (tipo "date")
+            date_name = next((k for k, v in properties_schema.items() if v.get("type") == "date"), None)
+            
+            if not title_name:
+                raise ValueError("Nessuna proprietà di tipo 'title' trovata nel database Notion.")
+                
+            # Costruisci le proprietà per la creazione
+            properties = {
+                title_name: {"title": [{"text": {"content": title}}]}
+            }
+            
+            if status_name:
+                if status_type == "status":
+                    properties[status_name] = {"status": {"name": status}}
+                elif status_type == "select":
+                    properties[status_name] = {"select": {"name": status}}
+                elif status_type == "checkbox":
+                    properties[status_name] = {"checkbox": status.lower() in ["done", "completato", "true"]}
+                    
+            if date_name and due_date:
+                # Pulisce/valida la data di scadenza base YYYY-MM-DD
+                if re.match(r"^\d{4}-\d{2}-\d{2}$", due_date.strip()):
+                    properties[date_name] = {"date": {"start": due_date.strip()}}
+                    
+            # Invia la richiesta di creazione
+            new_page = client.pages.create(parent={"database_id": db_id}, properties=properties)
+            page_id = new_page["id"]
+            notion_success = True
+            print(f"Task '{title}' creato con successo su Notion (Page ID: {page_id})")
+        except Exception as e:
+            notion_error_msg = str(e)
+            print(f"Errore nella creazione del task su Notion, fallback locale: {e}")
+    else:
+        if not token:
+            notion_error_msg = "NOTION_TOKEN non impostato in .env"
+        elif not db_id:
+            notion_error_msg = "tasks_database_id non configurato in settings.md"
+        elif not NOTION_CLIENT_AVAILABLE:
+            notion_error_msg = "libreria 'notion-client' non installata"
+        else:
+            notion_error_msg = "Integrazione Notion disabilitata nelle impostazioni"
+            
+    # 2. Crea la nota locale nel vault Obsidian
+    clean_title = re.sub(r'[\\/*?:"<>|]', "", title)
+    # Assicura che la categoria sia valida
+    clean_category = re.sub(r'[\\/*?:"<>|]', "", category).strip() or "General"
+    
+    local_rel_path = f"wiki/entities/{clean_category}/{clean_title}.md"
+    local_abs_path = os.path.join(vault_path, local_rel_path)
+    os.makedirs(os.path.dirname(local_abs_path), exist_ok=True)
+    
+    fm = {
+        "type": "microtheme",
+        "title": title,
+        "status": status,
+        "due_date": due_date or None,
+        "source": "notion" if notion_success else "local",
+        "notion_page_id": page_id
+    }
+    
+    body = f"# {title}\n\n"
+    body += f"**Stato**: {status}\n"
+    if due_date:
+        body += f"**Scadenza**: {due_date}\n"
+    if not notion_success:
+        body += f"\n*Nota: Questo task è stato creato localmente (errore Notion: {notion_error_msg}).*\n"
+        
+    full_md = to_markdown(fm, body)
+    
+    with open(local_abs_path, "w", encoding="utf-8") as f:
+        f.write(full_md)
+        
+    # Auto-commit su Git se configurato
+    try:
+        from engine.git_ops import git_commit_file
+        git_commit_file(local_rel_path, f"Crea task: {title}")
+    except Exception:
+        pass
+        
+    if notion_success:
+        return f"Task '{title}' creato con successo su Notion e salvato localmente nel vault in `{local_rel_path}`."
+    else:
+        return f"Task '{title}' creato solo localmente nel vault in `{local_rel_path}` (Notion non disponibile: {notion_error_msg})."
+
 if __name__ == "__main__":
     notion_tasks_sync()

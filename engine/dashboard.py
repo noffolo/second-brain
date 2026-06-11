@@ -558,7 +558,7 @@ async def choose_emoji_via_llm(query: str, answer: str) -> str:
         )
         
         async with Agent(config) as agent:
-            response = await agent.chat(prompt)
+            response = await asyncio.wait_for(agent.chat(prompt), timeout=1.8)
             emoji_text = (await response.text()).strip()
             for char in emoji_text:
                 if ord(char) > 0x1f000 or char in "🧠👥📅📂📝💻🤔💭💡🤖🔧🎨📈":
