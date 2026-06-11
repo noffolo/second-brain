@@ -501,6 +501,7 @@ def build_graph_data(force_update=False):
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[dict]] = None
+    conversation_id: Optional[str] = None
 
 # --- Web UI Routes ---
 @app.get("/graph", response_class=HTMLResponse)
@@ -637,14 +638,25 @@ def choose_emoji(query: str, answer: str) -> str:
 
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
-    try:
-        ans = await query_agent_answer(req.message, history=req.history)
-        wiki_re = re.compile(r'\[\[(.*?)\]\]')
-        cited = [m.split("|")[0].strip() for m in wiki_re.findall(ans)]
-        emoji = choose_emoji(req.message, ans)
-        return {"answer": ans, "cited_nodes": cited, "emoji": emoji}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    async def event_generator():
+        ans_accumulator = []
+        try:
+            from engine.query_agent import query_agent_stream
+            async for token in query_agent_stream(req.message, history=req.history, conversation_id=req.conversation_id):
+                ans_accumulator.append(token)
+                yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+                
+            full_ans = "".join(ans_accumulator)
+            wiki_re = re.compile(r'\[\[(.*?)\]\]')
+            cited = [m.split("|")[0].strip() for m in wiki_re.findall(full_ans)]
+            emoji = choose_emoji(req.message, full_ans)
+            
+            # Send done event with metadata
+            yield f"data: {json.dumps({'type': 'done', 'cited_nodes': cited, 'emoji': emoji})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+            
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/api/upload")
 async def upload_files(

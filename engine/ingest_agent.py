@@ -643,7 +643,7 @@ async def run_ingest(dry_run: bool = False, source_filter: str = None):
         
     unprocessed = list_unprocessed_raw()
     
-    if source_filter:
+    if source_filter and source_filter != "queue":
         if source_filter == "mail":
             unprocessed = [u for u in unprocessed if u.startswith("raw/mail/")]
         else:

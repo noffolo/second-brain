@@ -39,6 +39,9 @@ def handle_notion_full_sync() -> int:
     return db_count + cal_count + tasks_count
 
 def handle_sync(source: str = None):
+    if source == "queue":
+        print("Sorgente impostata a 'queue': salto sincronizzazione esterna.")
+        return 0, 0, 0, 0, 0
     print("Avvio sincronizzazione delle fonti...")
     
     # Tentativo di pull per allinearsi con eventuali modifiche esterne

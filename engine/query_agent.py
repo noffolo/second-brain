@@ -749,7 +749,7 @@ Le tue istruzioni base sono:
 
 async def query_agent_with_fallback(question: str, config: LocalAgentConfig, history: list = None) -> str:
     history_context = ""
-    if history:
+    if history and not getattr(config, "conversation_id", None):
         history_context = "Cronologia Conversazione (Ultimi messaggi):\n"
         for msg in history:
             role = "Utente" if msg["role"] == "user" else "Assistente"
@@ -758,10 +758,9 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig, his
         
     full_question = history_context + question
 
-    # 1. Prova ad usare l'Agent nativo di Gemini (con tool search_wiki/read_wiki_page_content)
     try:
         from engine.utils.llm_fallback import resolve_gemini_key
-        gemini_key = resolve_gemini_key()
+        gemini_key = resolve_gemini_key(config.model)
         if not gemini_key or gemini_key == "dummy-key":
             raise ValueError("GEMINI_API_KEY non impostata o impostata come dummy-key")
             
@@ -773,6 +772,14 @@ async def query_agent_with_fallback(question: str, config: LocalAgentConfig, his
             return resp_text
     except Exception as e:
         print(f"[Query Fallback] Gemini API fallita o non disponibile ({e}). Tento RAG locale con LLM di fallback...")
+        err_str = str(e).lower()
+        if any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate_limit", "rate limit"]):
+            try:
+                from engine.utils.llm_fallback import save_rate_limited_key
+                print(f"[Query Fallback] Rilevato rate limit su Agent primario. Inserisco chiave {gemini_key[:10]}... in blacklist per {config.model}.")
+                save_rate_limited_key(gemini_key, config.model)
+            except Exception as blacklist_err:
+                print(f"[Query Fallback] Errore nel salvataggio della blacklist: {blacklist_err}")
         
         # 2. RAG locale: cerca nel vault ed estrae il contesto tramite ricerca ibrida
         search_results = []
@@ -964,9 +971,49 @@ async def run_single_query(question: str):
     answer = await query_agent_with_fallback(question, config)
     print(f"Agent: {answer}")
 
-async def query_agent_answer(question: str, history: list = None) -> str:
+async def query_agent_answer(question: str, history: list = None, conversation_id: str = None) -> str:
     config = await get_query_agent_config()
+    if conversation_id:
+        config.conversation_id = conversation_id
     return await query_agent_with_fallback(question, config, history=history)
+
+async def query_agent_stream(question: str, history: list = None, conversation_id: str = None):
+    config = await get_query_agent_config()
+    if conversation_id:
+        config.conversation_id = conversation_id
+        
+    history_context = ""
+    if history and not conversation_id:
+        history_context = "Cronologia Conversazione (Ultimi messaggi):\n"
+        for msg in history:
+            role = "Utente" if msg["role"] == "user" else "Assistente"
+            history_context += f"{role}: {msg['content']}\n"
+        history_context += "\n---\nLa nuova richiesta dell'utente è la seguente:\n"
+        
+    full_question = history_context + question
+
+    try:
+        from engine.utils.llm_fallback import resolve_gemini_key
+        gemini_key = resolve_gemini_key(config.model)
+        if not gemini_key or gemini_key == "dummy-key":
+            raise ValueError("GEMINI_API_KEY non impostata o impostata come dummy-key")
+            
+        async with Agent(config) as agent:
+            response = await agent.chat(full_question)
+            async for token in response:
+                yield token
+    except Exception as e:
+        print(f"[Query Streaming] Agent primario fallito ({e}). Tento fallback...")
+        err_str = str(e).lower()
+        if any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate_limit", "rate limit"]):
+            try:
+                from engine.utils.llm_fallback import save_rate_limited_key
+                save_rate_limited_key(gemini_key, config.model)
+            except Exception:
+                pass
+                
+        fallback_res = await query_agent_with_fallback(question, config, history=history)
+        yield fallback_res
 
 if __name__ == "__main__":
     # Interactive default

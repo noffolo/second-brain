@@ -14,11 +14,11 @@ except AttributeError:
 
 _original_gemini_key_pool = None
 
-def resolve_gemini_key() -> str:
+def resolve_gemini_key(model: str = None) -> str:
     """
     Risolve e ruota le chiavi API di Gemini da una lista separata da virgole in GEMINI_API_KEY.
-    Memorizza la lista originale e seleziona a caso una delle chiavi, impostandola
-    temporaneamente in os.environ["GEMINI_API_KEY"] per compatibilità con gli SDK esterni.
+    Memorizza la lista originale, filtra per chiavi non soggette a rate limit per il modello specificato,
+    e seleziona a caso una delle chiavi sane, impostandola in os.environ["GEMINI_API_KEY"].
     """
     global _original_gemini_key_pool
     import random
@@ -36,7 +36,13 @@ def resolve_gemini_key() -> str:
     if not keys:
         return ""
         
-    selected_key = random.choice(keys)
+    # Filtra le chiavi che non sono in rate limit per il modello fornito
+    available_keys = [k for k in keys if not is_key_rate_limited(k, model)]
+    if not available_keys:
+        # Se tutte le chiavi sono limitate, usa l'intero pool come ultima risorsa
+        available_keys = keys
+        
+    selected_key = random.choice(available_keys)
     os.environ["GEMINI_API_KEY"] = selected_key
     return selected_key
 
@@ -287,9 +293,8 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
     in cascata sui provider di fallback disponibili (OpenAI -> DeepSeek -> Together -> DashScope -> Zhipu).
     """
 
-
     model_name = gemini_config.model
-    if model_name.startswith("ollama") or os.getenv("OLLAMA_ENABLED") == "true":
+    if model_name.startswith("ollama"):
         ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip('/')
         ollama_model = "llama3"
         if "/" in model_name:

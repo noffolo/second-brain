@@ -307,8 +307,9 @@ async def process_text_query(user_message: str, chat_id: int, update: Update, co
         chat_memory.add_message(chat_id, "user", user_message)
         history = chat_memory.get_history(chat_id)
         
-        # Passa la history all'agente
-        answer = await query_agent_answer(user_message, history=history)
+        conversation_id = chat_memory.get_conversation_id(chat_id)
+        # Passa la history e il conversation_id all'agente
+        answer = await query_agent_answer(user_message, history=history, conversation_id=conversation_id)
         
         # Aggiungi la risposta alla memoria
         chat_memory.add_message(chat_id, "model", answer)

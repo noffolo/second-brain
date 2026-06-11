@@ -1,7 +1,7 @@
 import os
 import chromadb
 from engine.tools.vault_tools import get_vault_path
-from engine.tools.embedder import get_embedding, get_query_embedding
+from engine.tools.embedder import get_embedding, get_query_embedding, get_embeddings
 
 class VectorDB:
     def __init__(self, collection_name="second_brain_docs"):
@@ -30,21 +30,24 @@ class VectorDB:
         documents = []
         metadatas = []
         
+        try:
+            embs = get_embeddings(chunks)
+        except Exception as e:
+            print(f"[VectorDB] Errore nell'embedding batch dei chunk per {path}: {e}")
+            return
+            
         for i, chunk in enumerate(chunks):
-            try:
-                emb = get_embedding(chunk)
-                if not emb:
-                    continue
-                ids.append(f"{path}_{i}")
-                embeddings.append(emb)
-                documents.append(chunk)
-                metadatas.append({
-                    "path": path,
-                    "title": title,
-                    "chunk_index": i
-                })
-            except Exception as e:
-                print(f"[VectorDB] Errore nell'embedding del chunk {i} per {path}: {e}")
+            emb = embs[i] if i < len(embs) else None
+            if not emb:
+                continue
+            ids.append(f"{path}_{i}")
+            embeddings.append(emb)
+            documents.append(chunk)
+            metadatas.append({
+                "path": path,
+                "title": title,
+                "chunk_index": i
+            })
                 
         if ids:
             self.collection.add(

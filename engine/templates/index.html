@@ -600,6 +600,7 @@
                 <div class="control-button-wrapper" style="flex-direction: column; gap: 14px;">
                     <select id="source-selector" style="width: 100%; max-width: 280px; padding: 12px 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; color: var(--text-primary); outline: none; font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 500; cursor: pointer; transition: all 0.3s;">
                         <option value="all" style="background:#0d0f12; color:#fff;">Tutte le fonti</option>
+                        <option value="queue" style="background:#0d0f12; color:#fff;">Solo coda (smaltimento)</option>
                         <option value="notion" style="background:#0d0f12; color:#fff;">Database Notion</option>
                         <option value="drive" style="background:#0d0f12; color:#fff;">Google Drive (Documenti)</option>
                         <option value="mail" style="background:#0d0f12; color:#fff;">Apple Mail (E-mail)</option>
@@ -672,6 +673,7 @@
 
         const sourceLabels = {
             "all": "Tutte le fonti",
+            "queue": "Solo coda (smaltimento)",
             "notion": "Database Notion",
             "drive": "Google Drive",
             "mail": "Apple Mail",

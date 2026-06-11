@@ -19,7 +19,7 @@ def get_client() -> genai.Client:
         return genai.Client(vertexai=True, project=project, location=location)
     else:
         from engine.utils.llm_fallback import resolve_gemini_key
-        api_key = resolve_gemini_key()
+        api_key = resolve_gemini_key(EMBEDDING_MODEL)
         if not api_key or api_key == "dummy-key":
             raise ValueError("GEMINI_API_KEY is not set correctly. Usa Vertex AI oppure inserisci una chiave.")
         return genai.Client(api_key=api_key)
@@ -47,6 +47,45 @@ def get_embedding(text: str) -> List[float]:
         else:
             print(f"[Embedder] Errore imprevisto durante l'embedding: {e}")
         return []
+
+def get_embeddings(texts: List[str]) -> List[List[float]]:
+    global _embedding_quota_exhausted
+    if _embedding_quota_exhausted:
+        return [[] for _ in texts]
+    if not texts:
+        return []
+    
+    # Filtro testi vuoti ma tengo traccia degli indici per ricostruire la lista
+    non_empty_texts = []
+    indexes = []
+    for i, t in enumerate(texts):
+        if t.strip():
+            non_empty_texts.append(t)
+            indexes.append(i)
+            
+    if not non_empty_texts:
+        return [[] for _ in texts]
+        
+    try:
+        client = get_client()
+        result = client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=non_empty_texts,
+        )
+        
+        embeddings_out = [[] for _ in texts]
+        for idx_in_batch, val in enumerate(result.embeddings):
+            orig_idx = indexes[idx_in_batch]
+            embeddings_out[orig_idx] = val.values
+        return embeddings_out
+    except Exception as e:
+        err_msg = str(e)
+        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+            print("[Embedder] Quota embedding esaurita (429 RESOURCE_EXHAUSTED). Disabilitazione temporanea degli embedding per questa sessione.")
+            _embedding_quota_exhausted = True
+        else:
+            print(f"[Embedder] Errore imprevisto durante l'embedding batch: {e}")
+        return [[] for _ in texts]
 
 def get_query_embedding(query: str) -> List[float]:
     global _embedding_quota_exhausted

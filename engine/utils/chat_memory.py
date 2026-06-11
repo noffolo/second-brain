@@ -40,8 +40,28 @@ class ChatMemory:
     def get_history(self, chat_id: str) -> List[Dict[str, str]]:
         return self.memory.get(str(chat_id), [])
 
+    def get_conversation_id(self, chat_id: str) -> str:
+        import uuid
+        chat_id_str = str(chat_id)
+        if "__conversation_ids__" not in self.memory:
+            self.memory["__conversation_ids__"] = {}
+            
+        conv_ids = self.memory["__conversation_ids__"]
+        if chat_id_str not in conv_ids:
+            conv_ids[chat_id_str] = str(uuid.uuid4())
+            self._save()
+            
+        return conv_ids[chat_id_str]
+
     def clear_history(self, chat_id: str):
+        import uuid
         chat_id_str = str(chat_id)
         if chat_id_str in self.memory:
             self.memory[chat_id_str] = []
-            self._save()
+            
+        if "__conversation_ids__" not in self.memory:
+            self.memory["__conversation_ids__"] = {}
+            
+        # Rigeneriamo l'UUID nativo dell'SDK
+        self.memory["__conversation_ids__"][chat_id_str] = str(uuid.uuid4())
+        self._save()

@@ -156,6 +156,51 @@
             transform: translateY(-2px);
         }
 
+        /* Filtri Grafo */
+        .graph-filters {
+            position: absolute;
+            top: 90px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: rgba(13, 15, 18, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 14px 20px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            box-sizing: border-box;
+            width: 220px;
+        }
+
+        .filter-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 0.85rem;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 500;
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s;
+        }
+
+        .filter-checkbox:hover {
+            color: #fff;
+        }
+
+        .filter-checkbox input {
+            cursor: pointer;
+            accent-color: var(--accent-cyan);
+            width: 15px;
+            height: 15px;
+            margin: 0;
+        }
+
         /* Chat Panel */
         #chat-panel {
             flex: 1;
@@ -842,6 +887,16 @@
 
     <div id="graph-panel">
         <button class="toggle-btn" id="mode-toggle">Switch to 3D</button>
+        <div class="graph-filters">
+            <label class="filter-checkbox">
+                <input type="checkbox" id="filter-journal" checked>
+                Mostra Diari
+            </label>
+            <label class="filter-checkbox">
+                <input type="checkbox" id="filter-orphan" checked>
+                Mostra Note Orfane
+            </label>
+        </div>
         <div id="webgl-warning">
             <div id="webgl-warning-title">Grafica WebGL non disponibile</div>
             <div id="webgl-warning-text">WebGL non supportato o errore nel caricamento delle librerie esterne. Il chatbot rimane completamente operativo.</div>
@@ -916,6 +971,8 @@
         };
 
         let graphData = { nodes: [], links: [] };
+        let filteredData = { nodes: [], links: [] };
+        let nodeIdToNodeMap = new Map();
         let is3D = false; // Impostiamo 2D come default
         let Graph = null;
         window.primaryActiveNodes = new Set();
@@ -1009,13 +1066,75 @@
             });
         }
 
+        function updateFilteredData(triggerGraphUpdate = true) {
+            const showJournal = document.getElementById('filter-journal').checked;
+            const showOrphan = document.getElementById('filter-orphan').checked;
+            
+            let nodesToKeep = graphData.nodes.filter(node => {
+                if (!showJournal && node.isJournal) return false;
+                return true;
+            });
+            
+            const nodeIdsToKeep = new Set(nodesToKeep.map(n => n.id));
+            
+            let linksToKeep = graphData.links.filter(link => {
+                const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+                const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+                return nodeIdsToKeep.has(srcId) && nodeIdsToKeep.has(tgtId);
+            });
+            
+            if (!showOrphan) {
+                const activeNodeIds = new Set();
+                linksToKeep.forEach(link => {
+                    const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+                    const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+                    activeNodeIds.add(srcId);
+                    activeNodeIds.add(tgtId);
+                });
+                
+                nodesToKeep = nodesToKeep.filter(node => activeNodeIds.has(node.id));
+            }
+            
+            const finalNodeIds = new Set(nodesToKeep.map(n => n.id));
+            linksToKeep = linksToKeep.filter(link => {
+                const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+                const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+                return finalNodeIds.has(srcId) && finalNodeIds.has(tgtId);
+            });
+            
+            filteredData = { nodes: nodesToKeep, links: linksToKeep };
+            
+            if (triggerGraphUpdate && Graph) {
+                Graph.graphData(filteredData);
+            }
+        }
+
         // Carica dati del grafo
         fetch('/api/graph')
             .then(res => res.json())
             .then(data => {
+                nodeIdToNodeMap.clear();
+                data.nodes.forEach(node => {
+                    node.label = node.id.split('/').pop().replace('.md', '');
+                    node.isJournal = node.id.startsWith('journal/');
+                    node.color = getGroupColor(node.group || 1);
+                    node.radius = Math.max(Math.sqrt(node.val || 1) * 2.2, 4.5);
+                    nodeIdToNodeMap.set(node.id, node);
+                });
                 graphData = data;
+                updateFilteredData(false);
                 initGraph();
-                updateLegend(data.nodes);
+                updateLegend(filteredData.nodes);
+                
+                // Listener per i filtri
+                document.getElementById('filter-journal').addEventListener('change', () => {
+                    updateFilteredData(true);
+                    updateLegend(filteredData.nodes);
+                });
+                document.getElementById('filter-orphan').addEventListener('change', () => {
+                    updateFilteredData(true);
+                    updateLegend(filteredData.nodes);
+                });
             })
             .catch(err => {
                 console.error("Errore nel caricamento dei dati del grafo:", err);
@@ -1210,20 +1329,20 @@
                     Graph = ForceGraph3D()(container)
                         .width(container.clientWidth)
                         .height(container.clientHeight)
-                        .graphData(graphData)
+                        .graphData(filteredData)
                         .nodeVisibility(node => {
                             if (window.activeLegendGroup === null) return true;
                             return node.group === window.activeLegendGroup;
                         })
                         .linkVisibility(link => {
                             if (window.activeLegendGroup === null) return true;
-                            const srcGroup = typeof link.source === 'object' ? link.source.group : graphData.nodes.find(n => n.id === link.source)?.group;
-                            const tgtGroup = typeof link.target === 'object' ? link.target.id : graphData.nodes.find(n => n.id === link.target)?.group;
-                            return srcGroup === window.activeLegendGroup && tgtGroup === window.activeLegendGroup;
+                            const src = typeof link.source === 'object' ? link.source : nodeIdToNodeMap.get(link.source);
+                            const tgt = typeof link.target === 'object' ? link.target : nodeIdToNodeMap.get(link.target);
+                            return src && tgt && src.group === window.activeLegendGroup && tgt.group === window.activeLegendGroup;
                         })
                         .nodeLabel(node => {
                             if (hideNodeLabels) return null;
-                            return node.id.split('/').pop().replace('.md', '');
+                            return node.label || '';
                         })
                         .nodeColor(node => {
                             const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
@@ -1234,10 +1353,10 @@
                             if (isHovered) return '#ffffff';
                             if (hasActiveNodes) {
                                 if (isPrimary) return HIGHLIGHT_COLOR;
-                                if (isSecondary) return getGroupColor(node.group || 1);
+                                if (isSecondary) return node.color || '#9d4edd';
                                 return 'rgba(157, 78, 221, 0.12)';
                             }
-                            return getGroupColor(node.group || 1);
+                            return node.color || '#9d4edd';
                         })
                         .nodeVal(node => {
                             const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
@@ -1245,7 +1364,7 @@
                             const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
                             const isHovered = node === hoverNode;
                             
-                            let baseRadius = Math.max(Math.sqrt(node.val || 1) * 2.0, 3.5);
+                            let baseRadius = node.radius || 4.5;
                             if (isHovered) return baseRadius * 1.5;
                             if (hasActiveNodes) {
                                 if (isPrimary) return baseRadius * 1.8;
@@ -1321,30 +1440,30 @@
                 Graph = ForceGraph()(container)
                     .width(container.clientWidth)
                     .height(container.clientHeight)
-                    .graphData(graphData)
+                    .graphData(filteredData)
                     .nodeVisibility(node => {
                         if (window.activeLegendGroup === null) return true;
                         return node.group === window.activeLegendGroup;
                     })
                     .linkVisibility(link => {
                         if (window.activeLegendGroup === null) return true;
-                        const srcGroup = typeof link.source === 'object' ? link.source.group : graphData.nodes.find(n => n.id === link.source)?.group;
-                        const tgtGroup = typeof link.target === 'object' ? link.target.id : graphData.nodes.find(n => n.id === link.target)?.group;
-                        return srcGroup === window.activeLegendGroup && tgtGroup === window.activeLegendGroup;
+                        const src = typeof link.source === 'object' ? link.source : nodeIdToNodeMap.get(link.source);
+                        const tgt = typeof link.target === 'object' ? link.target : nodeIdToNodeMap.get(link.target);
+                        return src && tgt && src.group === window.activeLegendGroup && tgt.group === window.activeLegendGroup;
                     })
                     .nodeLabel(node => {
                         if (hideNodeLabels) return null;
-                        return node.id.split('/').pop().replace('.md', '');
+                        return node.label || '';
                     })
-                    // Disegna i nodi come cerchi 2D vettoriali su canvas con neon glow
+                    // Disegna i nodi come cerchi 2D vettoriali su canvas con neon glow ottimizzato
                     .nodeCanvasObject((node, ctx, globalScale) => {
                         const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
                         const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
                         const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
                         const isHovered = node === hoverNode;
                         
-                        let baseColor = getGroupColor(node.group || 1);
-                        let radius = Math.max(Math.sqrt(node.val || 1) * 2.2, 4.5);
+                        let baseColor = node.color || '#9d4edd';
+                        let radius = node.radius || 4.5;
                         let opacity = 0.85;
                         
                         if (isHovered) {
@@ -1368,7 +1487,7 @@
                         ctx.save();
                         ctx.globalAlpha = opacity;
                         
-                        // Neon glow per nodi attivi o hovered
+                        // Neon glow per nodi attivi o hovered (ottimizzato: disabilitato per nodi normali per salvare CPU)
                         if (isHovered || isPrimary) {
                             ctx.shadowColor = baseColor;
                             ctx.shadowBlur = 15;
@@ -1387,14 +1506,13 @@
                         
                         // Disegna l'etichetta del testo se lo zoom è abbastanza alto o se il nodo è attivo
                         if (!hideNodeLabels && (globalScale > 1.2 || isPrimary || isHovered)) {
-                            const label = node.id.split('/').pop().replace('.md', '');
                             const fontSize = Math.max(10 / globalScale, 6);
                             ctx.font = `${isHovered || isPrimary ? 'bold' : 'normal'} ${fontSize}px 'ABC Repro', sans-serif`;
                             ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'top';
                             ctx.shadowBlur = 0; // Disabilita l'ombra per il testo per renderlo leggibile
-                            ctx.fillText(label, node.x, node.y + radius + 4);
+                            ctx.fillText(node.label || '', node.x, node.y + radius + 4);
                         }
                         
                         ctx.restore();
@@ -1674,6 +1792,18 @@
         const chatMessages = document.getElementById('chat-messages');
         const chatSubmit = document.getElementById('chat-submit');
         let chatHistory = [];
+
+        function getConversationId() {
+            let convId = sessionStorage.getItem('conversation_id');
+            if (!convId) {
+                convId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+                sessionStorage.setItem('conversation_id', convId);
+            }
+            return convId;
+        }
 
         // Gestione multiriga ed auto-resize per la textarea chat-input
         chatInput.addEventListener('keydown', (e) => {
@@ -1969,72 +2099,76 @@
                 const res = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: message, history: chatHistory })
+                    body: JSON.stringify({ 
+                        message: message, 
+                        history: chatHistory,
+                        conversation_id: getConversationId()
+                    })
                 });
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.error || `HTTP ${res.status}`);
+                }
 
                 chatHistory.push({ role: 'user', content: message });
 
-                const data = await res.json();
+                const botMessageId = appendMessagePlaceholder('bot');
+                let botMessageText = '';
                 
-                clearInterval(emojiInterval);
-                
-                // Transizione ballo dell'emoji selezionata dall'LLM prima di mostrare la risposta
-                const loadingElement = document.getElementById(loadingId);
-                if (loadingElement) {
-                    const emojiSpan = loadingElement.querySelector('.thinking-emoji');
-                    if (emojiSpan && data.emoji) {
-                        emojiSpan.innerText = data.emoji;
-                        emojiSpan.style.animation = 'pulse-dance 0.4s 2 ease-in-out';
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Mantieni la linea incompleta nel buffer
+
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        if (trimmedLine.startsWith('data: ')) {
+                            try {
+                                const payload = JSON.parse(trimmedLine.substring(6));
+                                if (payload.type === 'token') {
+                                    botMessageText += payload.text;
+                                    updateMessageContent(botMessageId, botMessageText);
+                                } else if (payload.type === 'done') {
+                                    clearInterval(emojiInterval);
+                                    
+                                    const loadingElement = document.getElementById(loadingId);
+                                    if (loadingElement) loadingElement.remove();
+                                    
+                                    chatHistory.push({ role: 'model', content: botMessageText });
+                                    if (chatHistory.length > 14) {
+                                        chatHistory = chatHistory.slice(chatHistory.length - 14);
+                                    }
+                                    
+                                    finalizeMessage(botMessageId, botMessageText, payload.emoji);
+                                    
+                                    setAutoRotateState(0.4);
+                                    if (payload.cited_nodes && payload.cited_nodes.length > 0) {
+                                        highlightNodes(payload.cited_nodes, true);
+                                    } else {
+                                        highlightNodes(relevantNodes, true);
+                                    }
+                                } else if (payload.type === 'error') {
+                                    throw new Error(payload.error);
+                                }
+                            } catch (e) {
+                                console.error("Errore parsing SSE line:", e, trimmedLine);
+                            }
+                        }
                     }
-                    await new Promise(resolve => setTimeout(resolve, 800));
-                    loadingElement.remove();
                 }
-
-                if (res.ok) {
-                    chatHistory.push({ role: 'model', content: data.answer });
-                    
-                    if (chatHistory.length > 14) {
-                        chatHistory = chatHistory.slice(chatHistory.length - 14);
-                    }
-
-                    let parsedContent = data.answer;
-                    if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
-                        parsedContent = marked.parse(data.answer);
-                    } else {
-                        parsedContent = fallbackMarkdown(data.answer);
-                    }
-                    parsedContent = parseWikilinks(parsedContent);
-                    
-                    // Preponi l'emoji dell'LLM all'inizio della risposta
-                    if (data.emoji) {
-                        parsedContent = `<span style="font-size: 1.6rem; margin-right: 8px;">${data.emoji}</span>` + parsedContent;
-                    }
-                    
-                    appendMessage('bot', parsedContent, null, true);
-                    
-                    setAutoRotateState(0.4);
-                    if (data.cited_nodes && data.cited_nodes.length > 0) {
-                        highlightNodes(data.cited_nodes, true);
-                    } else {
-                        highlightNodes(relevantNodes, true);
-                    }
-                } else {
-                    appendMessage('bot', `Errore: ${data.error}`);
-                    chatHistory.pop();
-                    hideNodeLabels = false;
-                    isGraphThinking = false;
-                    if (Graph && typeof Graph.d3AlphaTarget === 'function') {
-                        Graph.d3AlphaTarget(0);
-                    }
-                    highlightNodes(relevantNodes, false);
-                    refreshGraphRendering();
-                }
-
             } catch (err) {
                 clearInterval(emojiInterval);
                 const loadingElement = document.getElementById(loadingId);
                 if (loadingElement) loadingElement.remove();
-                appendMessage('bot', "Errore di connessione al server.");
+                appendMessage('bot', `Errore: ${err.message || "Connessione fallita."}`);
                 if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'user') {
                     chatHistory.pop();
                 }
@@ -2133,6 +2267,69 @@
                 });
             });
             messageDiv.appendChild(copyBtn);
+        }
+
+        // --- Helper per Inviare Messaggi in Streaming (SSE) ---
+        function appendMessagePlaceholder(sender) {
+            const id = 'msg-' + Math.random().toString(36).substring(2, 9);
+            const div = document.createElement('div');
+            div.className = `message ${sender}`;
+            div.id = id;
+            
+            const textDiv = document.createElement('div');
+            textDiv.className = 'message-text';
+            div.appendChild(textDiv);
+            
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return id;
+        }
+
+        function updateMessageContent(id, text) {
+            const div = document.getElementById(id);
+            if (!div) return;
+            const textDiv = div.querySelector('.message-text');
+            if (!textDiv) return;
+            
+            let html = text;
+            if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                html = marked.parse(text);
+            } else {
+                html = fallbackMarkdown(text);
+            }
+            html = parseWikilinks(html);
+            textDiv.innerHTML = html;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function finalizeMessage(id, text, emoji) {
+            const div = document.getElementById(id);
+            if (!div) return;
+            const textDiv = div.querySelector('.message-text');
+            if (!textDiv) return;
+            
+            let html = text;
+            if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                html = marked.parse(text);
+            } else {
+                html = fallbackMarkdown(text);
+            }
+            html = parseWikilinks(html);
+            
+            if (emoji) {
+                html = `<span style="font-size: 1.6rem; margin-right: 8px;">${emoji}</span>` + html;
+            }
+            textDiv.innerHTML = html;
+            
+            addCopyButton(div, textDiv);
+            hideNodeLabels = false;
+            isGraphThinking = false;
+            if (Graph && typeof Graph.d3AlphaTarget === 'function') {
+                Graph.d3AlphaTarget(0);
+            }
+            highlightNodes([...window.primaryActiveNodes], false);
+            refreshGraphRendering();
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         // --- Funzione appendMessage potenziata con Typewriter e pulsante Copia ---

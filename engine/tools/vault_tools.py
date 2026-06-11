@@ -135,16 +135,24 @@ def append_to_log(entry: str):
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(log_line)
 
+_index_cache = None
+
 def update_index(relative_page_path: str, summary: str):
     """
     Registra una pagina wiki (concetto, entità o sorgente) in index.md.
     """
+    global _index_cache
     index_path = os.path.join(get_vault_path(), "index.md")
     if not os.path.exists(index_path):
         return
         
-    with open(index_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    if _index_cache is None:
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                _index_cache = f.read()
+        except Exception as e:
+            print(f"[update_index] Errore di lettura index.md: {e}")
+            return
         
     # Generate wikilink name
     basename = os.path.basename(relative_page_path)
@@ -152,7 +160,7 @@ def update_index(relative_page_path: str, summary: str):
     wikilink = f"[[{relative_page_path.replace('.md', '')}|{page_name}]]"
     
     # Check if page is already in index
-    if wikilink in content:
+    if wikilink in _index_cache:
         return
         
     # Append to the right section based on folder
@@ -167,15 +175,18 @@ def update_index(relative_page_path: str, summary: str):
     found = False
     for folder, marker in section_markers.items():
         if relative_page_path.startswith(folder):
-            if marker in content:
+            if marker in _index_cache:
                 new_entry = f"\n- {wikilink} — {summary}"
-                content = content.replace(marker, f"{marker}{new_entry}")
+                _index_cache = _index_cache.replace(marker, f"{marker}{new_entry}")
                 found = True
                 break
                 
     if found:
-        with open(index_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        try:
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write(_index_cache)
+        except Exception as e:
+            print(f"[update_index] Errore di scrittura index.md: {e}")
 
 def search_wiki(query: str) -> list[dict]:
     """

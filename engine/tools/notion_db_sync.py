@@ -72,6 +72,40 @@ def get_notion_title(page: dict) -> str:
                 return "".join([t.get("plain_text", "") for t in title_list]).strip()
     return "Senza titolo"
 
+def build_id_to_title_map_from_vault() -> dict:
+    id_to_title = {}
+    vault_path = get_vault_path()
+    folder_mapping = {
+        "Clienti": "wiki/entities/Clienti",
+        "Progetti": "wiki/entities/Progetti",
+        "Task": "wiki/entities/Task",
+        "Riunioni": "wiki/sources/Riunioni",
+        "Documenti": "wiki/sources/Documenti",
+        "Link": "wiki/sources/Link"
+    }
+    
+    from engine.utils.markdown import parse_markdown
+    for name, folder in folder_mapping.items():
+        abs_folder = os.path.join(vault_path, folder)
+        if not os.path.exists(abs_folder):
+            continue
+        for root, _, files in os.walk(abs_folder):
+            for file in files:
+                if file.endswith(".md"):
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        fm, _ = parse_markdown(content)
+                        notion_id = fm.get("notion_page_id")
+                        title = fm.get("title")
+                        if notion_id and title:
+                            id_to_title[notion_id] = title
+                            id_to_title[notion_id.replace("-", "")] = title
+                    except Exception:
+                        pass
+    return id_to_title
+
 def notion_all_db_sync() -> int:
     load_dotenv()
     vault_path = get_vault_path()
@@ -102,12 +136,26 @@ def notion_all_db_sync() -> int:
         
     client = Client(auth=token)
     
-    # 1. Fetch all pages first to build the id_to_title mapping
-    print("Download dell'elenco completo delle pagine per la risoluzione delle relazioni...")
-    id_to_title = {}
+    # 1. Costruzione mappa ID-Titolo dal vault locale e interrogazione incrementale
+    print("Costruzione della mappa ID-Titolo dal vault locale...")
+    id_to_title = build_id_to_title_map_from_vault()
     all_pages_by_db = {name: [] for name in db_ids}
     
+    folder_mapping = {
+        "Clienti": "wiki/entities/Clienti",
+        "Progetti": "wiki/entities/Progetti",
+        "Task": "wiki/entities/Task",
+        "Riunioni": "wiki/sources/Riunioni",
+        "Documenti": "wiki/sources/Documenti",
+        "Link": "wiki/sources/Link"
+    }
+    
     for name, db_id in db_ids.items():
+        folder_path = os.path.join(vault_path, folder_mapping.get(name, ""))
+        has_local_files = False
+        if os.path.exists(folder_path):
+            has_local_files = any(f.endswith(".md") for f in os.listdir(folder_path))
+            
         print(f"Interrogazione Notion database '{name}' ({db_id})...")
         try:
             has_more = True
@@ -116,6 +164,16 @@ def notion_all_db_sync() -> int:
                 body = {}
                 if next_cursor:
                     body["start_cursor"] = next_cursor
+                    
+                if has_local_files:
+                    seven_days_ago = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)).isoformat()
+                    body["filter"] = {
+                        "timestamp": "last_edited_time",
+                        "last_edited_time": {
+                            "on_or_after": seven_days_ago
+                        }
+                    }
+                    
                 resp = query_notion_database(client, db_id, body)
                 results = resp.get("results", [])
                 all_pages_by_db[name].extend(results)
@@ -124,6 +182,7 @@ def notion_all_db_sync() -> int:
                     p_id = page["id"]
                     p_title = get_notion_title(page)
                     id_to_title[p_id] = p_title
+                    id_to_title[p_id.replace("-", "")] = p_title
                     
                 has_more = resp.get("has_more", False)
                 next_cursor = resp.get("next_cursor")
