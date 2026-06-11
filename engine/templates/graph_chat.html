@@ -5,7 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secondo Cervello - Graph & Chat</title>
     
-    <!-- Force Graph libs (Useremo solo 3D-force-graph per sfruttare WebGL sia in 2D che in 3D, espone internamente Three.js come ForceGraph3D.THREE) -->
+    <!-- Force Graph libs (2D Canvas e 3D WebGL con fallback automatico e isolamento) -->
+    <script src="/static/js/force-graph.min.js"></script>
+    <script src="/static/js/three.min.js"></script>
+    <script>
+        window.THREE_LEGACY = window.THREE;
+        window.THREE = undefined; // Isola per non inquinare l'inizializzazione di 3d-force-graph
+    </script>
     <script src="/static/js/3d-force-graph.min.js"></script>
     
     <!-- Markdown to HTML basic parser -->
@@ -885,47 +891,29 @@
             return 'inactive'; // All other links
         }
 
-        // Helper per impostare lo stato di auto-rotazione su OrbitControls
+        // Helper per impostare lo stato di auto-rotazione su OrbitControls (solo in 3D WebGL)
         function setAutoRotateState(speed) {
-            if (Graph && typeof Graph.controls === 'function') {
+            if (Graph && is3D && typeof Graph.controls === 'function') {
                 const controls = Graph.controls();
                 if (controls) {
-                    if (is3D) {
-                        controls.autoRotate = true;
-                        controls.autoRotateSpeed = speed;
-                    } else {
-                        controls.autoRotate = false;
-                    }
+                    controls.autoRotate = true;
+                    controls.autoRotateSpeed = speed;
                 }
             }
         }
 
-        let circleTexture = null;
-        function getCircleTexture() {
-            if (!circleTexture) {
-                const THREE = window.THREE;
+        // Verifica disponibilità di WebGL
+        function isWebGLAvailable() {
+            try {
                 const canvas = document.createElement('canvas');
-                canvas.width = 64;
-                canvas.height = 64;
-                const ctx = canvas.getContext('2d');
-                
-                // Cerchio interno
-                ctx.beginPath();
-                ctx.arc(32, 32, 26, 0, 2 * Math.PI);
-                ctx.fillStyle = '#ffffff';
-                ctx.fill();
-                
-                // Bordo ad alta definizione per un look morbido e "cool"
-                ctx.lineWidth = 3;
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-                ctx.stroke();
-                
-                circleTexture = new THREE.CanvasTexture(canvas);
+                return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+            } catch (e) {
+                return false;
             }
-            return circleTexture;
         }
 
-        function updateSpriteProperties(node, sprite) {
+        // Helpers per colori, spessore e particelle dei link
+        function getGroupColor(group) {
             const groupColors = {
                 1: '#9d4edd', // Default (Viola)
                 2: '#00b4d8', // Concetti (Azzurro/Ciano)
@@ -935,7 +923,88 @@
                 6: '#e63946', // Riunioni (Rosso)
                 7: '#b5179e'  // Diari (Lilla/Viola chiaro)
             };
-            let baseColor = groupColors[node.group] || '#9d4edd';
+            return groupColors[group] || '#9d4edd';
+        }
+
+        function getLinkColor(link) {
+            const type = getLinkType(link);
+            if (type === 'default') return 'rgba(157, 78, 221, 0.5)'; // Opacità 0.5
+            if (type === 'strong') return HIGHLIGHT_COLOR; // Ciano neon
+            if (type === 'medium') return 'rgba(0, 245, 212, 0.6)';
+            if (type === 'weak') return 'rgba(157, 78, 221, 0.4)';
+            return 'rgba(255, 255, 255, 0.15)'; // Opacità 0.15 per inattivi
+        }
+
+        function getLinkWidth(link) {
+            const type = getLinkType(link);
+            if (type === 'default') return 2.4; 
+            if (type === 'strong') return 8.0;  
+            if (type === 'medium') return 4.4;  
+            if (type === 'weak') return 2.4;    
+            return 1.2;                        
+        }
+
+        function getLinkParticles(link) {
+            const type = getLinkType(link);
+            if (isGraphThinking) {
+                const srcId = typeof link.source === 'object' ? link.source.id : link.source;
+                const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
+                const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId);
+                if (isConnected) return 4;
+                return 0;
+            }
+            if (type === 'strong') return 4;
+            if (type === 'medium') return 2;
+            return 0;
+        }
+
+        function getLinkParticleSpeed(link) {
+            const type = getLinkType(link);
+            const baseSpeed = (type === 'strong') ? 0.035 : (type === 'medium' ? 0.02 : 0.01);
+            return isGraphThinking ? baseSpeed * 1.8 : baseSpeed;
+        }
+
+        function getLinkParticleWidth(link) {
+            const type = getLinkType(link);
+            const baseWidth = (type === 'strong') ? 5.5 : (type === 'medium' ? 3.5 : 1.8);
+            return isGraphThinking ? baseWidth * 1.4 : baseWidth;
+        }
+
+        function getLinkParticleColor(link) {
+            const type = getLinkType(link);
+            if (type === 'strong') return HIGHLIGHT_COLOR;
+            if (type === 'medium') return '#00b4d8';
+            return '#c77dff';
+        }
+
+        // Texture cerchio per Sprite 3D (utilizza Three.js isolato legacy)
+        let circleTexture = null;
+        function getCircleTexture() {
+            if (!circleTexture) {
+                const THREE = window.THREE_LEGACY;
+                if (!THREE) return null;
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                
+                ctx.beginPath();
+                ctx.arc(32, 32, 26, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.stroke();
+                
+                circleTexture = new THREE.CanvasTexture(canvas);
+            }
+            return circleTexture;
+        }
+
+        // Aggiorna scala/colore di Sprite 3D
+        function updateSpriteProperties(node, sprite) {
+            let baseColor = getGroupColor(node.group || 1);
             let opacity = 0.85;
             let scaleMultiplier = 1.0;
             
@@ -949,7 +1018,7 @@
                 opacity = 1.0;
             } else if (hasActiveNodes) {
                 if (isPrimary) {
-                    baseColor = HIGHLIGHT_COLOR; // Ciano neon
+                    baseColor = HIGHLIGHT_COLOR;
                     scaleMultiplier = 2.0;
                     opacity = 1.0;
                 } else if (isSecondary) {
@@ -957,7 +1026,7 @@
                     opacity = 0.8;
                 } else {
                     scaleMultiplier = 0.5;
-                    opacity = 0.15; // Sfuma i nodi inattivi
+                    opacity = 0.15;
                 }
             }
             
@@ -971,80 +1040,77 @@
             }
         }
 
+        // Funzione zoom/pan riutilizzabile per 2D e 3D
+        function zoomToNode(node) {
+            if (!node || !Graph) return;
+            if (is3D) {
+                if (typeof Graph.cameraPosition === 'function') {
+                    const distance = 80;
+                    const camX = (node.x || 0) + distance * 0.6;
+                    const camY = (node.y || 0) + distance * 0.6;
+                    const camZ = (node.z || 0) + distance * 0.6;
+                    Graph.cameraPosition(
+                        { x: camX, y: camY, z: camZ },
+                        { x: node.x || 0, y: node.y || 0, z: node.z || 0 },
+                        1800
+                    );
+                }
+            } else {
+                if (typeof Graph.centerAt === 'function') {
+                    Graph.centerAt(node.x || 0, node.y || 0, 1800);
+                    Graph.zoom(2.2, 1800);
+                }
+            }
+        }
+
+        // Gestore del click sul nodo (Focus + Modale Wiki)
+        function handleNodeClick(node) {
+            if (!node || !node.id) return;
+            zoomToNode(node);
+            openWikiModal(node.id);
+        }
+
+        // Inizializzazione Principale del Grafo con Fallback Automatico
         function initGraph() {
-            try {
-                if (!Graph) {
+            // Se esiste un'istanza precedente, puliamo il contenitore
+            if (Graph) {
+                try {
+                    Graph._destructor && Graph._destructor();
+                } catch(e) {}
+                container.innerHTML = '';
+                Graph = null;
+            }
+
+            const webgl = isWebGLAvailable();
+
+            if (is3D && webgl) {
+                // --- INIZIALIZZAZIONE 3D (WebGL) ---
+                try {
                     if (typeof ForceGraph3D === 'undefined') {
-                        console.warn("ForceGraph3D non è caricato. Il grafo non sarà visualizzato.");
-                        showGraphError("ForceGraph3D is undefined");
-                        return;
+                        throw new Error("Libreria ForceGraph3D non disponibile.");
                     }
-                    // Usa la versione di Three.js interna di ForceGraph3D per prevenire prototype mismatches e conflitti WebGL
-                    window.THREE = ForceGraph3D.THREE;
                     Graph = ForceGraph3D()(container)
                         .width(container.clientWidth)
                         .height(container.clientHeight)
                         .graphData(graphData)
                         .nodeLabel('id')
-                        // Disegna nodi come cerchi 2D vettoriali (Sprite) ad alte prestazioni
                         .nodeThreeObject(node => {
-                            const THREE = window.THREE;
+                            const THREE = window.THREE_LEGACY;
+                            if (!THREE) return null;
                             const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
                                 map: getCircleTexture(),
                                 transparent: true,
-                                depthWrite: false // Evita problemi di clipping per sovrapposizioni trasparenti
+                                depthWrite: false
                             }));
                             updateSpriteProperties(node, sprite);
                             return sprite;
                         })
-                        .linkColor(link => {
-                            const type = getLinkType(link);
-                            if (type === 'default') return 'rgba(157, 78, 221, 0.5)'; // Opacità 0.5
-                            if (type === 'strong') return HIGHLIGHT_COLOR; // Ciano neon
-                            if (type === 'medium') return 'rgba(0, 245, 212, 0.6)';
-                            if (type === 'weak') return 'rgba(157, 78, 221, 0.4)';
-                            return 'rgba(255, 255, 255, 0.15)'; // Opacità 0.15 per inattivi
-                        })
-                        .linkWidth(link => {
-                            const type = getLinkType(link);
-                            if (type === 'default') return 2.4; // Raddoppiato da 1.2
-                            if (type === 'strong') return 8.0;  // Raddoppiato da 4.0
-                            if (type === 'medium') return 4.4;  // Raddoppiato da 2.2
-                            if (type === 'weak') return 2.4;    // Raddoppiato da 1.2
-                            return 1.2;                        // Raddoppiato da 0.6
-                        })
-                        // Neuroni in azione (particelle di energia) limitate per evitare lag
-                        .linkDirectionalParticles(link => {
-                            const type = getLinkType(link);
-                            if (isGraphThinking) {
-                                // Fase di ragionamento: animiamo solo le connessioni adiacenti ai nodi attivi
-                                const srcId = typeof link.source === 'object' ? link.source.id : link.source;
-                                const tgtId = typeof link.target === 'object' ? link.target.id : link.target;
-                                const isConnected = window.primaryActiveNodes.has(srcId) || window.primaryActiveNodes.has(tgtId);
-                                if (isConnected) return 4;
-                                return 0;
-                            }
-                            if (type === 'strong') return 4;
-                            if (type === 'medium') return 2;
-                            return 0; // Disabilitate per i link inattivi o di default
-                        })
-                        .linkDirectionalParticleSpeed(link => {
-                            const type = getLinkType(link);
-                            const baseSpeed = (type === 'strong') ? 0.035 : (type === 'medium' ? 0.02 : 0.01);
-                            return isGraphThinking ? baseSpeed * 1.8 : baseSpeed;
-                        })
-                        .linkDirectionalParticleWidth(link => {
-                            const type = getLinkType(link);
-                            const baseWidth = (type === 'strong') ? 5.5 : (type === 'medium' ? 3.5 : 1.8);
-                            return isGraphThinking ? baseWidth * 1.4 : baseWidth;
-                        })
-                        .linkDirectionalParticleColor(link => {
-                            const type = getLinkType(link);
-                            if (type === 'strong') return HIGHLIGHT_COLOR;
-                            if (type === 'medium') return '#00b4d8';
-                            return '#c77dff';
-                        })
-                        // Settle rapido e cooldown della simulazione fisica per azzerare consumo CPU
+                        .linkColor(link => getLinkColor(link))
+                        .linkWidth(link => getLinkWidth(link))
+                        .linkDirectionalParticles(link => getLinkParticles(link))
+                        .linkDirectionalParticleSpeed(link => getLinkParticleSpeed(link))
+                        .linkDirectionalParticleWidth(link => getLinkParticleWidth(link))
+                        .linkDirectionalParticleColor(link => getLinkParticleColor(link))
                         .cooldownTicks(50)
                         .cooldownTime(4000)
                         .d3VelocityDecay(0.35)
@@ -1052,63 +1118,141 @@
                             const prevHoverNode = hoverNode;
                             hoverNode = node || null;
                             document.body.style.cursor = node ? 'pointer' : null;
-                            
-                            // Aggiorna lo stile dei nodi interessati dall'hover in tempo reale
                             if (prevHoverNode && prevHoverNode.__threeObj) {
                                 updateSpriteProperties(prevHoverNode, prevHoverNode.__threeObj);
                             }
                             if (hoverNode && hoverNode.__threeObj) {
                                 updateSpriteProperties(hoverNode, hoverNode.__threeObj);
                             }
-                        });
-                    
-                    // ResizeObserver debouncato per evitare continui ricalcoli WebGL costosi
-                    let resizeTimeout;
-                    new ResizeObserver(() => {
-                        clearTimeout(resizeTimeout);
-                        resizeTimeout = setTimeout(() => {
-                            if (Graph && typeof Graph.width === 'function') {
-                                Graph.width(container.clientWidth).height(container.clientHeight);
-                            }
-                        }, 150);
-                    }).observe(container);
-                }
-                
-                // Imposta modalità 2D o 3D
-                if (Graph && typeof Graph.numDimensions === 'function') {
-                    Graph.numDimensions(is3D ? 3 : 2);
-                }
+                        })
+                        .onNodeClick(node => handleNodeClick(node));
 
-                // Blocco rotazione fotocamera e asse Z in modalità 2D (OrbitControls)
-                setTimeout(() => {
-                    if (Graph && typeof Graph.controls === 'function') {
-                        const controls = Graph.controls();
-                        if (controls) {
-                            controls.enableRotate = is3D;
-                            if (!is3D) {
-                                controls.autoRotate = false;
-                                controls.minPolarAngle = Math.PI / 2;
-                                controls.maxPolarAngle = Math.PI / 2;
-                                controls.minAzimuthAngle = 0;
-                                controls.maxAzimuthAngle = 0;
-                                Graph.cameraPosition({ x: 0, y: 0, z: 450 }, { x: 0, y: 0, z: 0 }, 500);
-                            } else {
-                                controls.minPolarAngle = 0;
-                                controls.maxPolarAngle = Math.PI;
-                                controls.minAzimuthAngle = -Infinity;
-                                controls.maxAzimuthAngle = Infinity;
+                    // Abilita la rotazione in idle della camera
+                    setTimeout(() => {
+                        if (Graph && typeof Graph.controls === 'function') {
+                            const controls = Graph.controls();
+                            if (controls) {
+                                controls.enableRotate = true;
                                 controls.autoRotate = true;
                                 controls.autoRotateSpeed = isGraphThinking ? 5.0 : 0.4;
                             }
                         }
-                    }
-                }, 100);
+                    }, 100);
+
+                } catch (err) {
+                    console.warn("Errore nell'inizializzazione del grafo 3D WebGL, eseguo fallback su 2D Canvas:", err);
+                    is3D = false;
+                    toggleBtn.innerText = "Switch to 3D";
+                    initGraph2D();
+                }
+            } else {
+                // --- INIZIALIZZAZIONE 2D (HTML5 Canvas) ---
+                initGraph2D();
+            }
+        }
+
+        // Funzione specifica per inizializzare il grafo 2D (Canvas)
+        function initGraph2D() {
+            try {
+                if (typeof ForceGraph === 'undefined') {
+                    console.warn("ForceGraph 2D non è caricato.");
+                    showGraphError("ForceGraph 2D is undefined");
+                    return;
+                }
+                
+                Graph = ForceGraph()(container)
+                    .width(container.clientWidth)
+                    .height(container.clientHeight)
+                    .graphData(graphData)
+                    .nodeLabel('id')
+                    // Disegna i nodi come cerchi 2D vettoriali su canvas con neon glow
+                    .nodeCanvasObject((node, ctx, globalScale) => {
+                        const isPrimary = window.primaryActiveNodes && window.primaryActiveNodes.has(node.id);
+                        const isSecondary = window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id);
+                        const hasActiveNodes = window.primaryActiveNodes && window.primaryActiveNodes.size > 0;
+                        const isHovered = node === hoverNode;
+                        
+                        let baseColor = getGroupColor(node.group || 1);
+                        let radius = Math.max(Math.sqrt(node.val || 1) * 2.2, 4.5);
+                        let opacity = 0.85;
+                        
+                        if (isHovered) {
+                            baseColor = '#ffffff';
+                            radius *= 1.4;
+                            opacity = 1.0;
+                        } else if (hasActiveNodes) {
+                            if (isPrimary) {
+                                baseColor = HIGHLIGHT_COLOR; // Ciano neon
+                                radius *= 1.8;
+                                opacity = 1.0;
+                            } else if (isSecondary) {
+                                radius *= 1.2;
+                                opacity = 0.8;
+                            } else {
+                                radius *= 0.5;
+                                opacity = 0.15; // Sfuma i nodi inattivi
+                            }
+                        }
+                        
+                        ctx.save();
+                        ctx.globalAlpha = opacity;
+                        
+                        // Neon glow per nodi attivi o hovered
+                        if (isHovered || isPrimary) {
+                            ctx.shadowColor = baseColor;
+                            ctx.shadowBlur = 15;
+                        } else if (isSecondary) {
+                            ctx.shadowColor = baseColor;
+                            ctx.shadowBlur = 8;
+                        }
+                        
+                        // Cerchio esterno
+                        ctx.beginPath();
+                        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+                        ctx.fillStyle = baseColor;
+                        ctx.fill();
+                        
+                        // Bordo bianco per alta definizione
+                        ctx.lineWidth = 1.5 / globalScale;
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                        ctx.stroke();
+                        
+                        // Disegna l'etichetta del testo se lo zoom è abbastanza alto o se il nodo è attivo
+                        if (globalScale > 1.2 || isPrimary || isHovered) {
+                            const label = node.id.split('/').pop().replace('.md', '');
+                            const fontSize = Math.max(10 / globalScale, 6);
+                            ctx.font = `${isHovered || isPrimary ? 'bold' : 'normal'} ${fontSize}px 'ABC Repro', sans-serif`;
+                            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'top';
+                            ctx.shadowBlur = 0; // Disabilita l'ombra per il testo per renderlo leggibile
+                            ctx.fillText(label, node.x, node.y + radius + 4);
+                        }
+                        
+                        ctx.restore();
+                    })
+                    .linkColor(link => getLinkColor(link))
+                    .linkWidth(link => getLinkWidth(link))
+                    .linkDirectionalParticles(link => getLinkParticles(link))
+                    .linkDirectionalParticleSpeed(link => getLinkParticleSpeed(link))
+                    .linkDirectionalParticleWidth(link => getLinkParticleWidth(link))
+                    .linkDirectionalParticleColor(link => getLinkParticleColor(link))
+                    .cooldownTicks(50)
+                    .cooldownTime(4000)
+                    .d3VelocityDecay(0.35)
+                    .onNodeHover(node => {
+                        hoverNode = node || null;
+                        document.body.style.cursor = node ? 'pointer' : null;
+                    })
+                    .onNodeClick(node => handleNodeClick(node));
+                    
             } catch (err) {
-                console.error("Errore nell'inizializzazione del grafo WebGL:", err);
+                console.error("Errore nell'inizializzazione del grafo 2D Canvas:", err);
                 showGraphError(err);
             }
         }
 
+        // Visualizzazione dell'errore nel container del grafo
         function showGraphError(err) {
             if (!container) return;
             if (container.querySelector('.graph-error-msg')) return;
@@ -1137,6 +1281,7 @@
             container.appendChild(errDiv);
         }
 
+        // Listener del pulsante per alternare 2D/3D
         toggleBtn.addEventListener('click', () => {
             is3D = !is3D;
             toggleBtn.innerText = is3D ? "Switch to 2D" : "Switch to 3D";
@@ -1214,7 +1359,7 @@
                     });
                 }
                 
-                // Aggiorna dinamicamente in-place le proprietà degli Sprite dei nodi
+                // Aggiorna dinamicamente in-place le proprietà degli Sprite dei nodi (solo in 3D)
                 graphData.nodes.forEach(node => {
                     if (node.__threeObj) {
                         updateSpriteProperties(node, node.__threeObj);
@@ -1229,10 +1374,15 @@
                     Graph.linkDirectionalParticleSpeed(Graph.linkDirectionalParticleSpeed());
                     Graph.linkDirectionalParticleWidth(Graph.linkDirectionalParticleWidth());
                 }
+                
+                // Forza il ridisegno in 2D Canvas
+                if (typeof Graph.refresh === 'function') {
+                    Graph.refresh();
+                }
  
                 // Zoom e posizionamento dinamico baricentrico su TUTTI i nodi attivi
                 const activeNodes = graphData.nodes.filter(n => window.primaryActiveNodes.has(n.id) || window.secondaryActiveNodes.has(n.id));
-                if (activeNodes.length > 0 && typeof Graph.cameraPosition === 'function') {
+                if (activeNodes.length > 0) {
                     let sumX = 0, sumY = 0, sumZ = 0;
                     activeNodes.forEach(n => {
                         sumX += n.x || 0;
@@ -1241,11 +1391,10 @@
                     });
                     const avgX = sumX / activeNodes.length;
                     const avgY = sumY / activeNodes.length;
-                    const avgZ = sumZ / activeNodes.length;
                     
                     let maxDist = 0;
                     activeNodes.forEach(n => {
-                        const d = Math.hypot((n.x || 0) - avgX, (n.y || 0) - avgY, (n.z || 0) - avgZ);
+                        const d = Math.hypot((n.x || 0) - avgX, (n.y || 0) - avgY);
                         if (d > maxDist) maxDist = d;
                     });
                     
@@ -1253,20 +1402,36 @@
                     const minDistance = isThinking ? (is3D ? 25 : 40) : (is3D ? 80 : 120);
                     const distance = Math.max(maxDist * distanceMultiplier, minDistance);
                     
-                    const camX = is3D ? avgX + distance * 0.6 : avgX;
-                    const camY = is3D ? avgY + distance * 0.6 : avgY;
-                    const camZ = is3D ? avgZ + distance * 0.6 : distance;
-                    
-                    Graph.cameraPosition(
-                        { x: camX, y: camY, z: camZ },
-                        { x: avgX, y: avgY, z: avgZ },
-                        1800
-                    );
+                    if (is3D && typeof Graph.cameraPosition === 'function') {
+                        const camX = avgX + distance * 0.6;
+                        const camY = avgY + distance * 0.6;
+                        const camZ = distance;
+                        Graph.cameraPosition(
+                            { x: camX, y: camY, z: camZ },
+                            { x: avgX, y: avgY, z: 0 },
+                            1800
+                        );
+                    } else if (typeof Graph.centerAt === 'function') {
+                        Graph.centerAt(avgX, avgY, 1800);
+                        const zoomLevel = Math.min(Math.max(400 / distance, 0.4), 2.5);
+                        Graph.zoom(zoomLevel, 1800);
+                    }
                 }
             } catch (err) {
                 console.warn("Errore nell'aggiornamento visivo del grafo:", err);
             }
         }
+
+        // ResizeObserver debouncato globale
+        let resizeTimeout;
+        new ResizeObserver(() => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (Graph && typeof Graph.width === 'function') {
+                    Graph.width(container.clientWidth).height(container.clientHeight);
+                }
+            }, 150);
+        }).observe(container);
 
         // Logica Chat
         const chatForm = document.getElementById('chat-form');
@@ -1794,67 +1959,11 @@
                 
                 if (matchedNode && Graph) {
                     highlightNodes([matchedNode.id], false);
-                    
-                    const distance = is3D ? 80 : 120;
-                    const camX = is3D ? matchedNode.x + distance * 0.6 : matchedNode.x;
-                    const camY = is3D ? matchedNode.y + distance * 0.6 : matchedNode.y;
-                    const camZ = is3D ? matchedNode.z + distance * 0.6 : distance;
-                    
-                    Graph.cameraPosition(
-                        { x: camX, y: camY, z: camZ }, // posizione camera
-                        { x: matchedNode.x, y: matchedNode.y, z: matchedNode.z }, // lookAt target
-                        1800 // durata
-                    );
+                    zoomToNode(matchedNode);
                 }
             }
             
-            showModalLoading(path);
-            
-            try {
-                const res = await fetch(`/api/wiki?path=${encodeURIComponent(path)}`);
-                if (!res.ok) {
-                    throw new Error(`Impossibile caricare il file "${path}" nel vault.`);
-                }
-                const data = await res.json();
-                
-                // Formatta il frontmatter se presente
-                let metaHtml = "";
-                if (data.frontmatter && Object.keys(data.frontmatter).length > 0) {
-                    metaHtml += `<div class="wiki-metadata" style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9rem; border-left: 3px solid var(--accent-purple); border-right: 1px solid rgba(255,255,255,0.05); border-top: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05);">`;
-                    for (const [key, val] of Object.entries(data.frontmatter)) {
-                        if (val !== null && val !== undefined) {
-                            if (typeof val === 'object') {
-                                metaHtml += `<strong>${key}</strong>: ${JSON.stringify(val)}<br>`;
-                            } else {
-                                metaHtml += `<strong>${key}</strong>: ${val}<br>`;
-                            }
-                        }
-                    }
-                    metaHtml += `</div>`;
-                }
-                
-                // Conversione corpo markdown
-                let contentHtml = data.content;
-                if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
-                    contentHtml = marked.parse(data.content);
-                } else {
-                    contentHtml = fallbackMarkdown(data.content);
-                }
-                
-                // Converte ricorsivamente i wikilink anche all'interno del modale
-                contentHtml = parseWikilinks(contentHtml);
-                
-                showModal(data.title, metaHtml + contentHtml);
-            } catch (err) {
-                console.error(err);
-                showModal("Errore", `
-                    <div style="color: #ff6b6b; padding: 30px; text-align: center;">
-                        <svg viewBox="0 0 24 24" style="width: 48px; height: 48px; fill: none; stroke: currentColor; stroke-width: 1.5; margin-bottom: 15px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        <h3 style="margin-bottom: 10px;">Impossibile trovare la scheda</h3>
-                        <p style="font-size: 0.95rem; opacity: 0.8;">La nota <strong>[[${path}]]</strong> non esiste ancora nel vault o il percorso non è valido.</p>
-                    </div>
-                `);
-            }
+            openWikiModal(path);
         });
     </script>
 </body>
