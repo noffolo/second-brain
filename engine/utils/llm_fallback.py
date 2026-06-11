@@ -214,83 +214,151 @@ async def call_openai_compatible_api(url: str, api_key: str, model: str, system_
             else:
                 raise RuntimeError(f"{e}")
 
-async def call_native_gemini_api(model: str, api_key: str, system_instructions: str, prompt: str, timeout: int = 25) -> str:
+async def call_native_gemini_api(
+    model: str, 
+    api_key: str, 
+    system_instructions: str, 
+    prompt: str, 
+    timeout: int = 25,
+    use_vertex: bool = False,
+    project: str = None,
+    location: str = None
+) -> str:
     """
-    Invia una richiesta HTTP POST diretta alle API REST di Google Gemini (senza passare per l'SDK).
-    Questo evita conflitti di autorizzazioni degli strumenti (tool declarations) e fornisce codici 429 immediati.
+    Invia una richiesta alle API di Google Gemini (via API Key o Vertex AI) usando l'SDK google-genai.
     """
+    import asyncio
+    from google.genai import Client, types
+    from google.genai.errors import APIError
+
     if system_instructions and not isinstance(system_instructions, str):
         system_instructions = getattr(system_instructions, "identity", getattr(system_instructions, "text", str(system_instructions)))
-        
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ]
-    }
-    if system_instructions:
-        payload["systemInstruction"] = {
-            "parts": [
-                {"text": system_instructions}
-            ]
-        }
-        
-    # Forza il formato JSON se il prompt lo richiede
+
+    # Inizializza il client in base alla configurazione
+    if use_vertex:
+        client = Client(vertexai=True, project=project, location=location)
+    else:
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY non fornita.")
+        client = Client(api_key=api_key)
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_instructions,
+        temperature=0.2,
+    )
     if "json" in prompt.lower():
-        payload["generationConfig"] = {
-            "responseMimeType": "application/json"
-        }
- 
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/json")
-    
-    loop = asyncio.get_running_loop()
+        config.response_mime_type = "application/json"
+
+    # Tentativi con backoff esponenziale per errori transienti (non-429)
     max_retries = 3
     base_delay = 4
     for attempt in range(max_retries + 1):
         try:
-            def do_request():
-                with urllib.request.urlopen(req, context=ssl_context, timeout=timeout) as response:
-                    return response.read().decode("utf-8")
-                    
-            resp_body = await loop.run_in_executor(None, do_request)
-            resp_json = json.loads(resp_body)
-            return resp_json["candidates"][0]["content"]["parts"][0]["text"]
-        except urllib.error.HTTPError as e:
-            err_content = e.read().decode("utf-8") if e.fp else str(e)
-            is_rate_limit = (e.code == 429) or any(x in err_content.lower() for x in ["quota", "rate limit", "too many requests"])
+            # Esegui la generazione asincrona con timeout
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config
+                ),
+                timeout=timeout
+            )
+            if response.text and response.text.strip():
+                return response.text
+            raise RuntimeError("Risposta vuota da Gemini API")
+        except APIError as e:
+            err_msg = e.message or ""
+            is_rate_limit = (e.code == 429) or any(x in err_msg.lower() for x in ["quota", "rate limit", "too many requests", "resource_exhausted"])
             if is_rate_limit:
-                # Per i limiti di quota sui modelli gratuiti, solleviamo subito l'errore per attivare il circuit breaker
-                raise RuntimeError(f"HTTP Error 429 (Rate Limit): {err_content}")
+                # Per i limiti di quota solleviamo subito l'errore per attivare il circuit breaker e passare al fallback
+                raise RuntimeError(f"HTTP Error 429 (Rate Limit): {err_msg}")
             elif attempt < max_retries:
                 delay = base_delay * (2 ** attempt)
-                print(f"HTTP Error {e.code} da Gemini API. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
+                print(f"Errore API {e.code} da Gemini. Attesa di {delay}s (tentativo {attempt + 1}/{max_retries})...", flush=True)
                 await asyncio.sleep(delay)
             else:
-                raise RuntimeError(f"HTTP Error {e.code}: {err_content}")
+                raise RuntimeError(f"HTTP Error {e.code}: {err_msg}")
+        except asyncio.TimeoutError:
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                print(f"Timeout durante la chiamata Gemini. Attesa di {delay}s...", flush=True)
+                await asyncio.sleep(delay)
+            else:
+                raise RuntimeError("Chiamata a Gemini scaduta (Timeout)")
         except Exception as e:
             err_str = str(e).lower()
-            is_rate_limit = any(x in err_str for x in ["429", "quota", "rate limit", "too many requests"])
+            is_rate_limit = any(x in err_str for x in ["429", "quota", "rate limit", "too many requests", "resource_exhausted"])
             if is_rate_limit:
-                raise RuntimeError(f"Error 429: {e}")
+                raise RuntimeError(f"HTTP Error 429 (Rate Limit): {e}")
             elif attempt < max_retries:
                 delay = base_delay * (2 ** attempt)
-                print(f"Errore {e} da Gemini API. Attesa di {delay} secondi (tentativo {attempt + 1}/{max_retries})...")
+                print(f"Errore {e} da Gemini API. Attesa di {delay}s...", flush=True)
                 await asyncio.sleep(delay)
             else:
                 raise RuntimeError(f"{e}")
 
+def format_worst_case_fallback(prompt: str, errors: list) -> str:
+    import re
+    # Estrae la richiesta dell'utente
+    question = ""
+    question_match = re.search(r"La nuova richiesta dell'utente è la seguente:\s*(.*?)(?=\n\n---|\nRisultati della ricerca|$)", prompt, re.DOTALL)
+    if question_match:
+        question = question_match.group(1).strip()
+    else:
+        # Cerca dopo "Utente:" o righe simili
+        lines = prompt.splitlines()
+        for line in lines:
+            if line.startswith("Utente:"):
+                question = line.replace("Utente:", "", 1).strip()
+                break
+        if not question:
+            question = "\n".join(lines[:3])
+
+    # Estrae risultati della ricerca
+    context = ""
+    context_match = re.search(r"Risultati della ricerca nel vault:\s*(.*)", prompt, re.DOTALL)
+    if context_match:
+        context = context_match.group(1).strip()
+    
+    # Estrae statistiche
+    stats = ""
+    stats_match = re.search(r"--- Dati Statistici Aggregati Del Secondo Cervello ---\s*(.*?)(?=\nRisultati della ricerca|$)", prompt, re.DOTALL)
+    if stats_match:
+        stats = stats_match.group(1).strip()
+
+    error_details = "\n".join([f"- {err}" for err in errors])
+    
+    response = (
+        "⚠️ **[Servizio AI Temporaneamente Non Disponibile]**\n\n"
+        "Gentile utente, tutti i provider di intelligenza artificiale configurati (Gemini, Vertex AI, DeepSeek, ecc.) "
+        "sono attualmente congestionati, offline o hanno esaurito la quota giornaliera.\n\n"
+        "Per garantirti comunque l'accesso alle tue informazioni, ti mostro di seguito i dati e i documenti "
+        "estratti direttamente dal tuo Secondo Cervello (RAG locale) per la tua richiesta:\n\n"
+    )
+    
+    if stats:
+        response += "### 📊 Statistiche Rilevanti:\n"
+        response += f"```\n{stats}\n```\n\n"
+        
+    if context:
+        response += "### 📂 Documenti ed Estratti Rilevanti Trovati:\n\n"
+        response += context + "\n"
+    else:
+        response += "*Nessun documento rilevante trovato nel vault locale per questa query.*\n\n"
+        
+    response += (
+        "\n---\n"
+        "**Dettagli degli errori di connessione riscontrati:**\n"
+        f"```\n{error_details}\n```"
+    )
+    return response
+
 async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_config: LocalAgentConfig) -> str:
     """
-    Tenta di chiamare il modello Gemini di default (gemini-3.5-flash) tramite API REST nativa.
+    Tenta di chiamare il modello Gemini di default (gemini-3.5-flash) tramite API REST nativa o Vertex AI.
     Se fallisce o è esaurita la quota, tenta con i modelli in cascata (gemini-2.5-flash -> gemini-3.1-flash-lite -> gemini-2.0-flash).
     Se tutti i modelli Gemini falliscono o sono congestionati, tenta la chiamata
-    in cascata sui provider di fallback disponibili (OpenAI -> DeepSeek -> Together -> DashScope -> Zhipu).
+    in cascata sui provider di fallback disponibili (OpenAI -> DeepSeek -> Together -> DashScope -> Zhipu -> Ollama Flat Cloud -> Ollama locale).
     """
 
     model_name = gemini_config.model
@@ -346,66 +414,125 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
 
     errors = []
     keys = get_gemini_keys()
-    use_gemini = len(keys) > 0 or (hasattr(gemini_config, "vertex") and gemini_config.vertex)
+    
+    # Carica impostazioni Vertex se configurate in settings.md o gemini_config
+    use_vertex = getattr(gemini_config, "vertex", False)
+    vertex_project = getattr(gemini_config, "project", None)
+    vertex_location = getattr(gemini_config, "location", "us-central1")
+    
+    if not use_vertex:
+        try:
+            from engine.utils.markdown import load_settings
+            from engine.tools.vault_tools import get_vault_path
+            settings = load_settings(get_vault_path())
+            auth = settings.get("google_auth", {})
+            if auth.get("use_vertex", False):
+                use_vertex = True
+                vertex_project = auth.get("project_id") or None
+                vertex_location = auth.get("location", "us-central1")
+        except Exception as e:
+            print(f"[Fallback Settings] Fallito caricamento impostazioni Vertex: {e}")
+
+    use_gemini = len(keys) > 0 or use_vertex
     
     if use_gemini:
         rate_limited_models = load_rate_limited_models()
-        # 1a. Tentativo con Gemini Principale (da settings.md, es. gemini-3.5-flash)
+        # 1a. Tentativo con Gemini Principale (es. gemini-3.5-flash)
         if gemini_config.model in rate_limited_models:
-            print(f"Bypass Gemini Principale: {gemini_config.model} è contrassegnato in quota-limit nel file .rate_limits.json.")
+            print(f"Bypass Gemini Principale: {gemini_config.model} è contrassegnato in quota-limit.")
             errors.append(f"Gemini Principale ({gemini_config.model}): Saltato (in quota-limit).")
         else:
+            # Prova prima via Vertex AI se abilitato
+            if use_vertex:
+                try:
+                    print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via Vertex AI...")
+                    resp_text = await call_native_gemini_api(
+                        model=gemini_config.model,
+                        api_key=None,
+                        system_instructions=gemini_config.system_instructions,
+                        prompt=prompt,
+                        timeout=15,
+                        use_vertex=True,
+                        project=vertex_project,
+                        location=vertex_location
+                    )
+                    if resp_text and resp_text.strip():
+                        return resp_text
+                    raise RuntimeError("Risposta vuota da Vertex AI")
+                except Exception as e:
+                    errors.append(f"Vertex AI ({gemini_config.model}): {e}")
+                    print(f"Vertex AI ({gemini_config.model}) fallito: {e}. Tento con le chiavi API...")
+
+            # Prova poi via API keys in rotazione
             for current_key in keys:
                 if is_key_rate_limited(current_key, gemini_config.model):
-                    print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... (in blacklist per 429 su {gemini_config.model}).")
-                    errors.append(f"Chiave {current_key[:10]}...: Saltata (in blacklist per 429 su {gemini_config.model}).")
+                    print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... (in blacklist su {gemini_config.model}).")
+                    errors.append(f"Chiave {current_key[:10]}...: Saltata (in blacklist su {gemini_config.model}).")
                     continue
                 os.environ["GEMINI_API_KEY"] = current_key
                 try:
-                    print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via API REST nativa usando chiave {current_key[:10]}...")
+                    print(f"Tentativo di elaborazione con Gemini ({gemini_config.model}) via API key usando {current_key[:10]}...")
                     resp_text = await call_native_gemini_api(
                         model=gemini_config.model,
                         api_key=current_key,
                         system_instructions=gemini_config.system_instructions,
                         prompt=prompt,
-                        timeout=12
+                        timeout=15
                     )
-                    if resp_text and resp_text.strip() != "":
+                    if resp_text and resp_text.strip():
                         return resp_text
-                    raise RuntimeError("Risposta vuota da Gemini API")
+                    raise RuntimeError("Risposta vuota da Gemini API Key")
                 except Exception as e:
                     errors.append(f"Gemini Principale ({gemini_config.model}) con chiave {current_key[:10]}: {e}")
                     err_str = str(e).lower()
                     is_rate_limit = any(x in err_str for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
                     if is_rate_limit:
-                        print(f"Rilevato limite di quota/frequenza (429) per {gemini_config.model} con chiave {current_key[:10]}. Inserisco in blacklist per 5 minuti...")
+                        print(f"Rate limit su {gemini_config.model} con chiave {current_key[:10]}. Inserisco in blacklist...")
                         save_rate_limited_key(current_key, gemini_config.model)
                     else:
-                        err_msg = str(e)
-                        print(f"Gemini API ({gemini_config.model}) fallita con chiave {current_key[:10]} ({err_msg[:80]}...). Tento chiave successiva...")
+                        print(f"Gemini API ({gemini_config.model}) fallita con chiave {current_key[:10]}: {e}. Tento successiva...")
             
             if keys and all(is_key_rate_limited(k, gemini_config.model) for k in keys):
-                print(f"Tutte le chiavi hanno fallito/sono in rate limit per {gemini_config.model}. Attivo il circuit breaker per questo modello.")
+                print(f"Tutte le chiavi in rate limit per {gemini_config.model}. Attivo circuit breaker.")
                 save_rate_limited_model(gemini_config.model)
                         
-        # 1b. Tentativo con modelli Gemini di fallback in cascata (gemini-2.5-flash, gemini-3.1-flash-lite, gemini-2.0-flash)
+        # 1b. Tentativo con modelli Gemini di fallback in cascata
         fallback_models = ["gemini-2.5-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash"]
         for fallback_model in fallback_models:
-            # Ricarichiamo le limitazioni per rilevare modifiche in tempo reale fatte da altri thread/processi
             rate_limited_models = load_rate_limited_models()
             if fallback_model in rate_limited_models:
-                print(f"Bypass fallback: {fallback_model} è contrassegnato in quota-limit nel file .rate_limits.json.")
                 errors.append(f"Gemini Fallback ({fallback_model}): Saltato (in quota-limit).")
                 continue
             
+            # Prova prima via Vertex AI se abilitato
+            if use_vertex:
+                try:
+                    print(f"Tentativo di elaborazione con Gemini Fallback ({fallback_model}) via Vertex AI...")
+                    resp_text = await call_native_gemini_api(
+                        model=fallback_model,
+                        api_key=None,
+                        system_instructions=gemini_config.system_instructions,
+                        prompt=prompt,
+                        timeout=15,
+                        use_vertex=True,
+                        project=vertex_project,
+                        location=vertex_location
+                    )
+                    if resp_text and resp_text.strip():
+                        return resp_text
+                    raise RuntimeError("Risposta vuota da Vertex AI")
+                except Exception as e:
+                    errors.append(f"Vertex AI Fallback ({fallback_model}): {e}")
+                    print(f"Vertex AI Fallback ({fallback_model}) fallito: {e}. Tento con chiavi API...")
+
+            # Prova poi via API keys in rotazione
             for current_key in keys:
                 if is_key_rate_limited(current_key, fallback_model):
-                    print(f"[Circuit Breaker] Saltata chiave {current_key[:10]}... per fallback {fallback_model} (in blacklist per 429).")
-                    errors.append(f"Chiave {current_key[:10]}... (fallback): Saltata (in blacklist per 429 su {fallback_model}).")
+                    errors.append(f"Chiave {current_key[:10]}... (fallback): Saltata su {fallback_model}.")
                     continue
                 os.environ["GEMINI_API_KEY"] = current_key
                 try:
-                    print(f"Tentativo di elaborazione con Gemini di Fallback ({fallback_model}) via API REST nativa usando chiave {current_key[:10]}...")
+                    print(f"Tentativo di elaborazione con Gemini Fallback ({fallback_model}) usando chiave {current_key[:10]}...")
                     resp_text = await call_native_gemini_api(
                         model=fallback_model,
                         api_key=current_key,
@@ -413,7 +540,7 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                         prompt=prompt,
                         timeout=25
                     )
-                    if resp_text and resp_text.strip() != "":
+                    if resp_text and resp_text.strip():
                         return resp_text
                     raise RuntimeError(f"Risposta vuota da Gemini API ({fallback_model})")
                 except Exception as e2:
@@ -421,16 +548,14 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
                     err_str2 = str(e2).lower()
                     is_rate_limit2 = any(x in err_str2 for x in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "vuota", "empty"])
                     if is_rate_limit2:
-                        print(f"Rilevato limite di quota/frequenza (429) per fallback {fallback_model} con chiave {current_key[:10]}. Inserisco in blacklist per 5 minuti...")
                         save_rate_limited_key(current_key, fallback_model)
                     else:
-                        print(f"Gemini fallback ({fallback_model}) fallito con chiave {current_key[:10]}: {e2}. Tento chiave successiva...")
+                        print(f"Gemini fallback ({fallback_model}) fallito con chiave {current_key[:10]}: {e2}.")
             
             if keys and all(is_key_rate_limited(k, fallback_model) for k in keys):
-                print(f"Tutte le chiavi hanno fallito/sono in rate limit per {fallback_model}. Attivo il circuit breaker per questo modello.")
                 save_rate_limited_model(fallback_model)
     else:
-        errors.append("Gemini saltato: chiavi non valide o vuote in GEMINI_API_KEY e Vertex disabilitato.")
+        errors.append("Gemini saltato: nessuna chiave o Vertex disabilitato.")
 
     # 2. Fallback su OpenAI (gpt-4o-mini)
     openai_key = os.getenv("OPENAI_API_KEY")
@@ -511,6 +636,24 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
         except Exception as e:
             errors.append(f"Zhipu (glm-4): {e}")
             print(f"Zhipu AI fallito: {e}.")
+
+    # 6b. Fallback su Ollama Flat Cloud
+    flat_cloud_key = os.getenv("OLLAMA_FLAT_CLOUD_KEY")
+    flat_cloud_url = os.getenv("OLLAMA_FLAT_CLOUD_URL")
+    if flat_cloud_key and flat_cloud_url:
+        flat_cloud_model = os.getenv("OLLAMA_FLAT_CLOUD_MODEL", "qwen-plus")
+        try:
+            print(f"Fallback: Invocazione Ollama Flat Cloud ({flat_cloud_model}) presso {flat_cloud_url}...")
+            return await call_openai_compatible_api(
+                url=flat_cloud_url,
+                api_key=flat_cloud_key,
+                model=flat_cloud_model,
+                system_instructions=system_instructions,
+                prompt=prompt
+            )
+        except Exception as e:
+            errors.append(f"Ollama Flat Cloud ({flat_cloud_model}): {e}")
+            print(f"Ollama Flat Cloud fallito: {e}. Tento provider successivo...")
             
     # 7. Fallback finale su Ollama locale (se abilitato o se host configurato)
     if os.getenv("OLLAMA_ENABLED") == "true" or os.getenv("OLLAMA_HOST"):
@@ -530,7 +673,13 @@ async def call_llm_with_fallback(prompt: str, system_instructions: str, gemini_c
             errors.append(f"Ollama ({ollama_model}): {e}")
  
     error_summary = " | ".join(errors)
-    raise RuntimeError(f"Tutti i provider di fallback sono falliti o non configurati. Dettagli: {error_summary}")
+    print(f"[Fallback Outage] Tutti i provider LLM sono falliti. Dettagli: {error_summary}", flush=True)
+    
+    try:
+        return format_worst_case_fallback(prompt, errors)
+    except Exception as format_err:
+        print(f"[Fallback Outage] Errore di formattazione worst-case: {format_err}", flush=True)
+        raise RuntimeError(f"Tutti i provider di fallback sono falliti o non configurati. Dettagli: {error_summary}")
 
 
 async def transcribe_audio_via_gemini(audio_base64: str, mime_type: str = "audio/ogg") -> str:
