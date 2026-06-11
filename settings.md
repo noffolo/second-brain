@@ -28,9 +28,9 @@ sources:
     mailbox: "SecondBrain"            # Utilizzato solo se sync_all_accounts è false
     days_back: 90                      # Importa lo storico delle email (0 = tutte le email)
     attachments_dir: "raw/mail_attachments"
-    exclude_senders: ["noreply@", "newsletter@", "no-reply@", "promo@", "marketing@", "substack-updates@"]
+    exclude_senders: ["noreply@", "newsletter@", "no-reply@", "promo@", "marketing@", "substack-updates@", "mailer-daemon@", "postmaster@"]
     exclude_domains: ["glovoapp.com", "glovo.com", "gog.com", "booking.com", "promo.booking.com", "airbnb.com", "spotify.com", "diib.com", "coinbase.com", "crunchyroll.com", "medium.com", "ibs.it", "ifttt.com", "klingai.com", "repubblica.it"]
-    exclude_subjects: ["codice sconto", "accesso temporaneo", "accesso da nuovo", "daily digest", "mancato recapito", "fattura elettronica", "avviso di accesso", "promozionale"]
+    exclude_subjects: ["codice sconto", "accesso temporaneo", "accesso da nuovo", "daily digest", "mancato recapito", "fattura elettronica", "avviso di accesso", "promozionale", "failure notice", "delivery status notification"]
 
   mail_accounts:                     # Configura qui una lista di account IMAP per la sincronizzazione di caselle email multiple
     # - enabled: true
