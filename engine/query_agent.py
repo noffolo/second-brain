@@ -47,10 +47,70 @@ def extract_keywords(query: str) -> list[str]:
                 keywords.append(stem)
     return keywords
 
+def expand_with_graph_neighbors(results: list[dict], vault_path: str, max_neighbors: int = 5) -> list[dict]:
+    """
+    Espande i risultati della ricerca includendo i frammenti delle note collegate (vicini di primo grado)
+    per fornire un contesto Graph RAG ricco.
+    """
+    from engine.utils.markdown import extract_wikilinks
+    expanded = list(results)
+    seen_paths = {r['path'] for r in results}
+    
+    # Raccoglie i link dai primi 3 risultati più rilevanti
+    neighbors_to_fetch = []
+    for r in results[:3]:
+        filepath = os.path.join(vault_path, r['path'])
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                links = extract_wikilinks(content)
+                for link in links:
+                    # Rimuove l'estensione o i pipe dal link se presenti
+                    clean_link = link.split("|")[0].replace(".md", "").strip()
+                    neighbors_to_fetch.append((r['path'], clean_link))
+            except Exception:
+                pass
+                
+    # Risolve i vicini e aggiunge i loro frammenti
+    resolved_count = 0
+    from engine.ingest_agent import load_aliases_map
+    aliases_map = load_aliases_map(vault_path)
+    
+    for parent_path, link in neighbors_to_fetch:
+        if resolved_count >= max_neighbors:
+            break
+            
+        link_lower = link.lower()
+        entry = aliases_map.get(link_lower)
+        if entry:
+            rel_path = entry["path"]
+            if rel_path not in seen_paths:
+                seen_paths.add(rel_path)
+                abs_path = os.path.join(vault_path, rel_path)
+                if os.path.exists(abs_path):
+                    try:
+                        with open(abs_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        _, body = parse_markdown(content)
+                        body_clean = body.strip()
+                        snippet = body_clean[:400] + "..." if len(body_clean) > 400 else body_clean
+                        expanded.append({
+                            "path": rel_path,
+                            "title": entry["canonical"],
+                            "snippet": f"[Nota correlata collegata a [[{parent_path.replace('.md', '')}]]]:\n{snippet}"
+                        })
+                        resolved_count += 1
+                    except Exception:
+                        pass
+                        
+    return expanded
+
 def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
     """
     Esegue una ricerca ibrida unendo i risultati semantici del Vector DB
     con la ricerca testuale classica (search_wiki) basata su parole chiave.
+    Espande poi i risultati includendo le note adiacenti nel grafo (Graph RAG).
     """
     results = []
     seen_paths = set()
@@ -101,6 +161,12 @@ def hybrid_search_vault_func(query: str, limit: int = 15) -> list[dict]:
                 break
     except Exception as e:
         print(f"[Hybrid Search] Errore ricerca keyword: {e}")
+        
+    # 3. Espansione dei vicini del grafo (Graph RAG)
+    try:
+        results = expand_with_graph_neighbors(results, get_vault_path(), max_neighbors=5)
+    except Exception as e:
+        print(f"[Graph RAG] Errore espansione vicini: {e}")
         
     return results[:limit]
 

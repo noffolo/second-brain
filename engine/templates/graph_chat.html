@@ -140,8 +140,8 @@
             max-width: 85%;
             padding: 20px 24px;
             border-radius: 16px;
-            line-height: 1.65;
-            font-size: 1.5rem; /* INGRANDITO: testo del chatbot più leggibile */
+            line-height: 1.48; /* Ridotto del 10% da 1.65 */
+            font-size: 1.35rem; /* Ridotto del 10% da 1.5rem */
             animation: fadeIn 0.3s ease;
         }
 
@@ -167,7 +167,7 @@
 
         .message.bot p, #modal-body p {
             margin-bottom: 16px;
-            line-height: 1.7;
+            line-height: 1.53; /* Ridotto del 10% da 1.7 */
         }
         .message.bot p:last-child, #modal-body p:last-child {
             margin-bottom: 0;
@@ -208,7 +208,7 @@
         }
         .message.bot li, #modal-body li {
             margin-bottom: 8px;
-            line-height: 1.65;
+            line-height: 1.48; /* Ridotto del 10% da 1.65 */
         }
         .message.bot ul, #modal-body ul {
             list-style-type: disc;
@@ -278,7 +278,7 @@
             position: relative;
             padding-left: 28px;
             margin-bottom: 10px;
-            line-height: 1.75;
+            line-height: 1.57; /* Ridotto del 10% da 1.75 */
             font-size: 1.05em;
         }
 
@@ -310,7 +310,7 @@
             position: relative;
             padding-left: 32px;
             margin-bottom: 10px;
-            line-height: 1.75;
+            line-height: 1.57; /* Ridotto del 10% da 1.75 */
             font-size: 1.05em;
         }
 
@@ -360,7 +360,7 @@
             padding: 0 24px;
             height: 60px;
             border-radius: 12px;
-            font-size: 1.4rem; /* INGRANDITO: input più leggibile */
+            font-size: 1.26rem; /* Ridotto del 10% da 1.4rem */
             outline: none;
             transition: border-color 0.3s;
             box-sizing: border-box;
@@ -378,13 +378,94 @@
             height: 60px;
             border-radius: 12px;
             font-weight: 900;
-            font-size: 1.4rem; /* STESSO CORPO DI .chat-input */
+            font-size: 1.26rem; /* Ridotto del 10% da 1.4rem */
             cursor: pointer;
             transition: all 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
             box-sizing: border-box;
+        }
+
+        /* Legenda dinamica del Grafo in stile Glassmorphism */
+        #graph-legend {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(20, 24, 33, 0.65);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 16px;
+            width: 240px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+        #graph-legend:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            background: rgba(20, 24, 33, 0.75);
+        }
+        .legend-title {
+            font-family: 'ABC Repro', sans-serif;
+            font-weight: 900;
+            font-size: 0.9rem;
+            color: var(--accent-cyan);
+            margin-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+        .legend-color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .legend-label {
+            flex-grow: 1;
+            font-weight: 500;
+        }
+        .legend-count {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Stili per l'emoji animata pensante */
+        .thinking-emoji-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .thinking-emoji {
+            font-size: 2rem;
+            display: inline-block;
+            animation: pulse-dance 1.2s infinite ease-in-out;
+        }
+        @keyframes pulse-dance {
+            0% { transform: scale(1) rotate(0deg); }
+            25% { transform: scale(1.2) rotate(-10deg); }
+            50% { transform: scale(1) rotate(0deg); }
+            75% { transform: scale(1.2) rotate(10deg); }
+            100% { transform: scale(1) rotate(0deg); }
         }
 
         .chat-submit:hover {
@@ -643,6 +724,10 @@
     <div id="graph-panel">
         <button class="toggle-btn" id="mode-toggle">Switch to 2D</button>
         <div id="graph-container"></div>
+        <div id="graph-legend">
+            <div class="legend-title">Legenda Relazionale</div>
+            <div id="legend-items"></div>
+        </div>
     </div>
 
     <div id="chat-panel">
@@ -702,12 +787,51 @@
         const HIGHLIGHT_COLOR = '#00f5d4'; // Ciano neon
         const DEFAULT_COLOR = '#9d4edd'; // Viola di default
 
+        // Funzione per aggiornare la legenda dinamica del grafo
+        function updateLegend(nodes) {
+            const legendContainer = document.getElementById('legend-items');
+            if (!legendContainer) return;
+            
+            const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+            nodes.forEach(n => {
+                counts[n.group || 1] = (counts[n.group || 1] || 0) + 1;
+            });
+            
+            const categories = [
+                { group: 2, label: 'Concetti', color: '#00b4d8' },
+                { group: 3, label: 'Entità', color: '#38b000' },
+                { group: 4, label: 'Sorgenti', color: '#ffb703' },
+                { group: 5, label: 'Contatti CRM', color: '#ff7b00' },
+                { group: 6, label: 'Riunioni', color: '#e63946' },
+                { group: 7, label: 'Diari', color: '#b5179e' },
+                { group: 1, label: 'Altro', color: '#9d4edd' }
+            ];
+            
+            legendContainer.innerHTML = '';
+            categories.forEach(cat => {
+                const count = counts[cat.group] || 0;
+                if (count > 0 || cat.group === 1) {
+                    const item = document.createElement('div');
+                    item.className = 'legend-item';
+                    item.innerHTML = `
+                        <div style="display:flex; align-items:center;">
+                            <span class="legend-color-dot" style="background-color: ${cat.color}; box-shadow: 0 0 6px ${cat.color}"></span>
+                            <span class="legend-label">${cat.label}</span>
+                        </div>
+                        <span class="legend-count">${count}</span>
+                    `;
+                    legendContainer.appendChild(item);
+                }
+            });
+        }
+
         // Carica dati del grafo
         fetch('/api/graph')
             .then(res => res.json())
             .then(data => {
                 graphData = data;
                 initGraph();
+                updateLegend(data.nodes);
             })
             .catch(err => {
                 console.error("Errore nel caricamento dei dati del grafo:", err);
@@ -761,9 +885,22 @@
                         .nodeLabel('id')
                         .nodeColor(node => {
                             if (node === hoverNode) return '#fff';
-                            if (window.primaryActiveNodes && window.primaryActiveNodes.has(node.id)) return HIGHLIGHT_COLOR;
-                            if (window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id)) return '#c77dff'; // bright neon purple for secondary neighbors
-                            return (window.primaryActiveNodes && window.primaryActiveNodes.size > 0) ? '#12151c' : DEFAULT_COLOR;
+                            const groupColors = {
+                                1: '#9d4edd', // Default (Viola)
+                                2: '#00b4d8', // Concetti (Azzurro/Ciano)
+                                3: '#38b000', // Entità (Verde)
+                                4: '#ffb703', // Sorgenti (Giallo/Oro)
+                                5: '#ff7b00', // CRM (Arancione)
+                                6: '#e63946', // Riunioni (Rosso)
+                                7: '#b5179e'  // Diari (Lilla/Viola chiaro)
+                            };
+                            const baseColor = groupColors[node.group] || '#9d4edd';
+                            if (window.primaryActiveNodes && window.primaryActiveNodes.size > 0) {
+                                if (window.primaryActiveNodes.has(node.id)) return HIGHLIGHT_COLOR;
+                                if (window.secondaryActiveNodes && window.secondaryActiveNodes.has(node.id)) return baseColor;
+                                return 'rgba(255, 255, 255, 0.04)'; // molto tenue per nodi non attivi
+                            }
+                            return baseColor;
                         })
                         .nodeVal(node => {
                             const baseVal = node.val || 1;
@@ -777,19 +914,19 @@
                         .nodeRelSize(NODE_R)
                         .linkColor(link => {
                             const type = getLinkType(link);
-                            if (type === 'default') return 'rgba(157, 78, 221, 0.25)'; // Purple glow for default links
-                            if (type === 'strong') return HIGHLIGHT_COLOR; // Ciano neon for strong connections
-                            if (type === 'medium') return 'rgba(0, 245, 212, 0.45)'; // Semi-bright ciano
-                            if (type === 'weak') return 'rgba(157, 78, 221, 0.35)'; // Purple-violet for neighbor-neighbor links
-                            return 'rgba(255, 255, 255, 0.02)'; // very faint for inactive links
+                            if (type === 'default') return 'rgba(157, 78, 221, 0.5)'; // Opacità 0.5
+                            if (type === 'strong') return HIGHLIGHT_COLOR; // Ciano neon
+                            if (type === 'medium') return 'rgba(0, 245, 212, 0.6)';
+                            if (type === 'weak') return 'rgba(157, 78, 221, 0.4)';
+                            return 'rgba(255, 255, 255, 0.15)'; // Opacità 0.15 per inattivi
                         })
                         .linkWidth(link => {
                             const type = getLinkType(link);
-                            if (type === 'default') return 1.2;
-                            if (type === 'strong') return 4.0;
-                            if (type === 'medium') return 2.2;
-                            if (type === 'weak') return 1.2;
-                            return 0.6;
+                            if (type === 'default') return 2.4; // Raddoppiato da 1.2
+                            if (type === 'strong') return 8.0;  // Raddoppiato da 4.0
+                            if (type === 'medium') return 4.4;  // Raddoppiato da 2.2
+                            if (type === 'weak') return 2.4;    // Raddoppiato da 1.2
+                            return 1.2;                        // Raddoppiato da 0.6
                         })
                         // Neuroni in azione (particelle di energia)
                         .linkDirectionalParticles(link => {
@@ -1245,7 +1382,18 @@
             chatInput.value = '';
 
             const loadingId = 'loading-' + Date.now();
-            appendMessage('bot', '<span class="loading-dots">Sto pensando</span>', loadingId);
+            appendMessage('bot', '<div class="thinking-emoji-container"><span class="thinking-emoji">🧠</span> <span class="loading-dots">Sto pensando</span></div>', loadingId);
+
+            // Cicla attraverso diverse emoji durante il caricamento
+            const loadingEmojis = ["🧠", "🤔", "💭", "🤖"];
+            let emojiInterval = setInterval(() => {
+                const emojiSpan = document.querySelector(`#${loadingId} .thinking-emoji`);
+                if (emojiSpan) {
+                    const currentEmoji = emojiSpan.innerText;
+                    const nextIdx = (loadingEmojis.indexOf(currentEmoji) + 1) % loadingEmojis.length;
+                    emojiSpan.innerText = loadingEmojis[nextIdx];
+                }
+            }, 600);
 
             const relevantNodes = findRelevantNodes(message);
             highlightNodes(relevantNodes, true);
@@ -1293,8 +1441,19 @@
 
                 const data = await res.json();
                 
+                clearInterval(emojiInterval);
+                
+                // Transizione ballo dell'emoji selezionata dall'LLM prima di mostrare la risposta
                 const loadingElement = document.getElementById(loadingId);
-                if (loadingElement) loadingElement.remove();
+                if (loadingElement) {
+                    const emojiSpan = loadingElement.querySelector('.thinking-emoji');
+                    if (emojiSpan && data.emoji) {
+                        emojiSpan.innerText = data.emoji;
+                        emojiSpan.style.animation = 'pulse-dance 0.4s 2 ease-in-out';
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    loadingElement.remove();
+                }
 
                 if (res.ok) {
                     chatHistory.push({ role: 'model', content: data.answer });
@@ -1310,7 +1469,13 @@
                         parsedContent = fallbackMarkdown(data.answer);
                     }
                     parsedContent = parseWikilinks(parsedContent);
-                    appendMessage('bot', parsedContent);
+                    
+                    // Preponi l'emoji dell'LLM all'inizio della risposta
+                    if (data.emoji) {
+                        parsedContent = `<span style="font-size: 1.6rem; margin-right: 8px;">${data.emoji}</span>` + parsedContent;
+                    }
+                    
+                    appendMessage('bot', parsedContent, null, true);
                     
                     setAutoRotateState(0.4);
                     if (data.cited_nodes && data.cited_nodes.length > 0) {
@@ -1324,6 +1489,7 @@
                 }
 
             } catch (err) {
+                clearInterval(emojiInterval);
                 const loadingElement = document.getElementById(loadingId);
                 if (loadingElement) loadingElement.remove();
                 appendMessage('bot', "Errore di connessione al server.");
@@ -1337,41 +1503,92 @@
             }
         });
 
-        // --- Funzione appendMessage potenziata con pulsante Copia ---
-        function appendMessage(sender, content, id = null) {
+        // Funzione per l'effetto macchina da scrivere su nodi DOM (preservando l'HTML)
+        function typeWriter(element, html, speed = 8, onComplete) {
+            const temp = document.createElement('div');
+            temp.innerHTML = html;
+            
+            element.innerHTML = '';
+            let totalDelay = 0;
+            
+            function walk(sourceNode, targetNode) {
+                const childNodes = Array.from(sourceNode.childNodes);
+                
+                for (const child of childNodes) {
+                    if (child.nodeType === Node.TEXT_NODE) {
+                        const text = child.textContent;
+                        const textNode = document.createTextNode('');
+                        targetNode.appendChild(textNode);
+                        
+                        for (let i = 0; i < text.length; i++) {
+                            setTimeout(() => {
+                                textNode.textContent += text[i];
+                                const chatMessages = document.getElementById('chat-messages');
+                                chatMessages.scrollTop = chatMessages.scrollHeight;
+                            }, totalDelay);
+                            totalDelay += speed;
+                        }
+                    } else if (child.nodeType === Node.ELEMENT_NODE) {
+                        const newElement = document.createElement(child.tagName);
+                        for (const attr of child.attributes) {
+                            newElement.setAttribute(attr.name, attr.value);
+                        }
+                        targetNode.appendChild(newElement);
+                        walk(child, newElement);
+                    }
+                }
+            }
+            
+            walk(temp, element);
+            
+            if (onComplete) {
+                setTimeout(onComplete, totalDelay + 50);
+            }
+        }
+
+        function addCopyButton(messageDiv, textDiv) {
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-btn';
+            copyBtn.title = 'Copia negli appunti';
+            copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+            
+            copyBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const rawText = textDiv.innerText || textDiv.textContent;
+                navigator.clipboard.writeText(rawText).then(() => {
+                    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" style="stroke: var(--accent-cyan)"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                    setTimeout(() => {
+                        copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Errore copia:', err);
+                });
+            });
+            messageDiv.appendChild(copyBtn);
+        }
+
+        // --- Funzione appendMessage potenziata con Typewriter e pulsante Copia ---
+        function appendMessage(sender, content, id = null, useTypewriter = false) {
             const div = document.createElement('div');
             div.className = `message ${sender}`;
             if (id) div.id = id;
             
-            // Contenitore per il testo del messaggio
             const textDiv = document.createElement('div');
-            textDiv.innerHTML = content;
             div.appendChild(textDiv);
             
-            // Bottone di copia (non lo mostriamo sulle bolle di caricamento temporanee)
-            if (!content.includes('loading-dots')) {
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'copy-btn';
-                copyBtn.title = 'Copia negli appunti';
-                copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-                
-                copyBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const rawText = textDiv.innerText || textDiv.textContent;
-                    navigator.clipboard.writeText(rawText).then(() => {
-                        copyBtn.innerHTML = `<svg viewBox="0 0 24 24" style="stroke: var(--accent-cyan)"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-                        setTimeout(() => {
-                            copyBtn.innerHTML = `<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-                        }, 2000);
-                    }).catch(err => {
-                        console.error('Errore copia:', err);
-                    });
-                });
-                div.appendChild(copyBtn);
-            }
-            
             chatMessages.appendChild(div);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            if (useTypewriter) {
+                typeWriter(textDiv, content, 8, () => {
+                    addCopyButton(div, textDiv);
+                });
+            } else {
+                textDiv.innerHTML = content;
+                if (!content.includes('loading-dots') && !content.includes('thinking-emoji')) {
+                    addCopyButton(div, textDiv);
+                }
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
         }
 
         // Messaggio iniziale inserito via JS all'avvio per integrare la copia
@@ -1455,6 +1672,30 @@
             e.preventDefault();
             const path = link.getAttribute('data-path');
             if (!path) return;
+            
+            // Sintonizzazione Grafo-Chat: Focus e Zoom sul nodo corrispondente
+            if (graphData && graphData.nodes) {
+                const cleanTargetId = path.trim().toLowerCase();
+                const matchedNode = graphData.nodes.find(n => 
+                    n.id.toLowerCase() === cleanTargetId || 
+                    n.id.toLowerCase().endsWith('/' + cleanTargetId)
+                );
+                
+                if (matchedNode && Graph) {
+                    highlightNodes([matchedNode.id], false);
+                    
+                    const distance = is3D ? 80 : 120;
+                    const camX = is3D ? matchedNode.x + distance * 0.6 : matchedNode.x;
+                    const camY = is3D ? matchedNode.y + distance * 0.6 : matchedNode.y;
+                    const camZ = is3D ? matchedNode.z + distance * 0.6 : distance;
+                    
+                    Graph.cameraPosition(
+                        { x: camX, y: camY, z: camZ }, // posizione camera
+                        { x: matchedNode.x, y: matchedNode.y, z: matchedNode.z }, // lookAt target
+                        1800 // durata
+                    );
+                }
+            }
             
             showModalLoading(path);
             

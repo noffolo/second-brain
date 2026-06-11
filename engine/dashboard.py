@@ -370,8 +370,11 @@ def build_graph_data():
     links = []
     wiki_re = re.compile(r'\[\[(.*?)\]\]')
     folders = ["wiki", "CRM", "Meetings", "People", "journal", "Microthemes"]
-    node_set = set()
-    edges = []
+    
+    # Costruiamo una mappa per risolvere i link corti (solo nome file) nei percorsi relativi corretti
+    short_to_rel_map = {}
+    rel_path_set = set()
+    file_metadata = {}
     
     for folder in folders:
         abs_folder = os.path.join(vault_path, folder)
@@ -380,7 +383,44 @@ def build_graph_data():
             for file in files:
                 if file.endswith(".md"):
                     file_path = os.path.join(root, file)
-                    node_id = file.replace(".md", "")
+                    rel_path = os.path.relpath(file_path, vault_path).replace(".md", "")
+                    rel_path_set.add(rel_path)
+                    
+                    basename = os.path.splitext(file)[0]
+                    short_to_rel_map[basename.lower()] = rel_path
+                    
+                    # Raccogliamo anche metadati per colorare/personalizzare i nodi nel grafo
+                    group = 1
+                    if rel_path.startswith("wiki/concepts/"):
+                        group = 2
+                    elif rel_path.startswith("wiki/entities/"):
+                        group = 3
+                    elif rel_path.startswith("wiki/sources/"):
+                        group = 4
+                    elif rel_path.startswith("CRM/"):
+                        group = 5
+                    elif rel_path.startswith("Meetings/"):
+                        group = 6
+                    elif rel_path.startswith("journal/"):
+                        group = 7
+                        
+                    file_metadata[rel_path] = {
+                        "name": basename,
+                        "group": group
+                    }
+
+    edges = []
+    node_set = set()
+    
+    for folder in folders:
+        abs_folder = os.path.join(vault_path, folder)
+        if not os.path.exists(abs_folder): continue
+        for root, _, files in os.walk(abs_folder):
+            for file in files:
+                if file.endswith(".md"):
+                    file_path = os.path.join(root, file)
+                    node_id = os.path.relpath(file_path, vault_path).replace(".md", "")
+                    
                     node_set.add(node_id)
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
@@ -388,14 +428,29 @@ def build_graph_data():
                             matches = wiki_re.findall(content)
                             for match in matches:
                                 target = match.split("|")[0].strip()
-                                edges.append({"source": node_id, "target": target})
-                                node_set.add(target)
+                                
+                                # Risoluzione dei link corti
+                                resolved_target = target
+                                if "/" not in target and "\\" not in target:
+                                    resolved_target = short_to_rel_map.get(target.lower(), target)
+                                    
+                                edges.append({"source": node_id, "target": resolved_target})
+                                node_set.add(resolved_target)
                     except:
                         pass
                         
     for n in node_set:
         degree = sum(1 for e in edges if e["source"] == n or e["target"] == n)
-        nodes.append({"id": n, "name": n, "val": max(degree, 1), "group": 1})
+        meta = file_metadata.get(n, {
+            "name": os.path.basename(n),
+            "group": 1
+        })
+        nodes.append({
+            "id": n,
+            "name": meta["name"],
+            "val": max(degree, 1),
+            "group": meta["group"]
+        })
         
     for e in edges:
         links.append({"source": e["source"], "target": e["target"]})
@@ -403,6 +458,7 @@ def build_graph_data():
     _graph_cache = {"nodes": nodes, "links": links}
     _graph_cache_time = time.time()
     return _graph_cache
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -480,13 +536,56 @@ def get_wiki_page(path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+async def choose_emoji_via_llm(query: str, answer: str) -> str:
+    try:
+        from engine.utils.llm_fallback import resolve_gemini_key
+        from google.antigravity import Agent, LocalAgentConfig
+        gemini_key = resolve_gemini_key()
+        if not gemini_key or gemini_key == "dummy-key":
+            raise ValueError("No valid key")
+        
+        prompt = (
+            f"Analizza questa richiesta e scegli una singola emoji che rappresenti il tipo di pensiero o l'argomento (es. 🧠 per concetti/AI, 👥 per persone/contatti, 📅 per riunioni/eventi, 📂 per documenti/sorgenti, 📝 per note/diario, 💻 per programmazione/tecnologia, ecc.).\n"
+            f"Richiesta: {query}\n"
+            f"Risposta: {answer[:300]}\n"
+            f"Rispondi SOLTANTO con una singola emoji. Nessun altro carattere."
+        )
+        
+        config = LocalAgentConfig(
+            model="gemini-3.5-flash",
+            system_instructions="Sei un classificatore di emoji rapido. Rispondi esclusivamente con un singolo carattere emoji.",
+            temperature=0.0
+        )
+        
+        async with Agent(config) as agent:
+            response = await agent.chat(prompt)
+            emoji_text = (await response.text()).strip()
+            for char in emoji_text:
+                if ord(char) > 0x1f000 or char in "🧠👥📅📂📝💻🤔💭💡🤖🔧🎨📈":
+                    return char
+            return emoji_text[0] if emoji_text else "🧠"
+    except Exception:
+        text = (query + " " + answer).lower()
+        if any(k in text for k in ["verbale", "meeting", "riunione", "incontro", "call", "discussione", "meetings"]):
+            return "📅"
+        elif any(k in text for k in ["contatto", "crm", "persona", "people", "cliente", "collaboratore", "relazione", "profilo"]):
+            return "👥"
+        elif any(k in text for k in ["diario", "journal", "oggi", "ieri", "settimana", "riflessione", "personale"]):
+            return "📝"
+        elif any(k in text for k in ["sorgente", "source", "articolo", "web", "link", "url", "drive", "file", "documento", "pdf"]):
+            return "📂"
+        elif any(k in text for k in ["programma", "codice", "sviluppo", "python", "javascript", "html", "css", "bug", "errore"]):
+            return "💻"
+        return "🧠"
+
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
     try:
         ans = await query_agent_answer(req.message, history=req.history)
         wiki_re = re.compile(r'\[\[(.*?)\]\]')
         cited = [m.split("|")[0].strip() for m in wiki_re.findall(ans)]
-        return {"answer": ans, "cited_nodes": cited}
+        emoji = await choose_emoji_via_llm(req.message, ans)
+        return {"answer": ans, "cited_nodes": cited, "emoji": emoji}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
