@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Secondo Cervello - Graph & Chat</title>
     
+    <!-- Three.js (Necessario per poter utilizzare oggetti Three.js come THREE.Sprite e CanvasTexture nei nodi) -->
+    <script src="https://unpkg.com/three@0.150.0/build/three.min.js"></script>
+
     <!-- Force Graph libs (Useremo solo 3D-force-graph per sfruttare WebGL sia in 2D che in 3D) -->
     <script src="/static/js/3d-force-graph.min.js"></script>
     
@@ -100,20 +103,27 @@
             top: 20px;
             left: 20px;
             z-index: 10;
-            background: rgba(20, 24, 33, 0.8);
-            border: 1px solid var(--accent-cyan);
-            color: var(--accent-cyan);
-            padding: 8px 16px;
-            border-radius: 8px;
+            background: var(--accent-cyan);
+            color: #000;
+            border: none;
+            padding: 0 30px;
+            height: 60px;
+            border-radius: 12px;
             cursor: pointer;
             font-weight: 900;
+            font-size: 1.0rem; /* Uguale al tasto invia */
             backdrop-filter: blur(10px);
             transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
         }
 
         .toggle-btn:hover {
-            background: var(--accent-cyan);
+            background: #fff;
             color: #000;
+            transform: translateY(-2px);
         }
 
         /* Chat Panel */
@@ -141,7 +151,8 @@
             padding: 20px 24px;
             border-radius: 16px;
             line-height: 1.48; /* Ridotto del 10% da 1.65 */
-            font-size: 1.35rem; /* Ridotto del 10% da 1.5rem */
+            font-size: 1.1rem; /* Ridotto a 1.1rem per renderlo più compatto */
+            font-weight: 500; /* Forza il peso Medium della font */
             animation: fadeIn 0.3s ease;
         }
 
@@ -360,7 +371,8 @@
             padding: 0 24px;
             height: 60px;
             border-radius: 12px;
-            font-size: 1.26rem; /* Ridotto del 10% da 1.4rem */
+            font-size: 1.0rem; /* Ridotto a 1.0rem per compattezza */
+            font-weight: 500; /* Forza il peso Medium della font */
             outline: none;
             transition: border-color 0.3s;
             box-sizing: border-box;
@@ -378,7 +390,7 @@
             height: 60px;
             border-radius: 12px;
             font-weight: 900;
-            font-size: 1.26rem; /* Ridotto del 10% da 1.4rem */
+            font-size: 1.0rem; /* Ridotto a 1.0rem per coordinamento */
             cursor: pointer;
             transition: all 0.3s;
             display: flex;
@@ -725,7 +737,6 @@
         <button class="toggle-btn" id="mode-toggle">Switch to 2D</button>
         <div id="graph-container"></div>
         <div id="graph-legend">
-            <div class="legend-title">Legenda Relazionale</div>
             <div id="legend-items"></div>
         </div>
     </div>
